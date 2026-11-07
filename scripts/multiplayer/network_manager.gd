@@ -29,6 +29,13 @@ func _ready() -> void:
 	GDSync.client_left.connect(_on_client_left)
 	GDSync.host_changed.connect(_on_host_changed)
 
+	# جاي من القائمة الرئيسية وإحنا أصلًا جوه لوبي: نعمل اللاعب على طول
+	if GDSync.is_active() and GDSync.lobby_get_all_clients().has(GDSync.get_client_id()):
+		_refresh_status()
+		_spawn_local_player()
+		lobby_entered.emit(GDSync.is_host())
+		return
+
 	_set_status("Connecting...")
 	if use_local_multiplayer:
 		GDSync.start_local_multiplayer()
