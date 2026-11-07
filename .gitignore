@@ -1,1 +1,7 @@
+<<<<<<< HEAD
 .godot/
+=======
+# Godot 4+ specific ignores
+.godot/
+/android/
+>>>>>>> origin/main
