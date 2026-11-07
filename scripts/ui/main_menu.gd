@@ -1,8 +1,8 @@
 extends Control
 ## scripts/ui/main_menu.gd
-## القائمة الرئيسية: Host يعمل كود، واللاعب التاني يكتب الكود ويدخل.
-## اللاعب التاني يدوس Ready، والـ host يدوس Start فيدخلوا اللعبة مع بعض.
-## الواجهة بتتبني من الكود عشان نبدّل شكلها بعدين بسهولة.
+## الواجهة موجودة في main_menu.tscn (تقدر تعدّل شكلها من المحرر).
+## Host: يعمل روم وكود. Join: تكتب الكود وتدخل الروم.
+## التاني يدوس Ready، والـ host يدوس Start فيدخلوا اللعبة.
 
 @export_file("*.tscn") var game_scene: String = "res://scenes/worlds/test_room.tscn"
 
@@ -11,18 +11,23 @@ const CODE_LENGTH: int = 5
 const MAX_PLAYERS: int = 2
 const READY_KEY: String = "ready"
 
-var _status_label: Label
-var _menu_box: VBoxContainer
-var _code_input: LineEdit
-var _host_button: Button
-var _join_button: Button
+@onready var _status_label: Label = %StatusLabel
 
-var _lobby_box: VBoxContainer
-var _code_label: Label
-var _players_label: Label
-var _ready_button: Button
-var _start_button: Button
-var _leave_button: Button
+@onready var _menu_screen: VBoxContainer = %MenuScreen
+@onready var _host_button: Button = %HostButton
+@onready var _join_button: Button = %JoinButton
+
+@onready var _join_screen: VBoxContainer = %JoinScreen
+@onready var _code_input: LineEdit = %CodeInput
+@onready var _confirm_join_button: Button = %ConfirmJoinButton
+@onready var _back_button: Button = %BackButton
+
+@onready var _room_screen: VBoxContainer = %RoomScreen
+@onready var _code_label: Label = %CodeLabel
+@onready var _players_label: Label = %PlayersLabel
+@onready var _ready_button: Button = %ReadyButton
+@onready var _start_button: Button = %StartButton
+@onready var _leave_button: Button = %LeaveButton
 
 var _connected: bool = false
 var _busy: bool = false # في عملية جارية (إنشاء أو دخول)
@@ -31,7 +36,15 @@ var _starting: bool = false
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	_build_ui()
+
+	_host_button.pressed.connect(_on_host_pressed)
+	_join_button.pressed.connect(_on_join_screen_pressed)
+	_confirm_join_button.pressed.connect(_on_confirm_join_pressed)
+	_code_input.text_submitted.connect(func(_text: String) -> void: _on_confirm_join_pressed())
+	_back_button.pressed.connect(_on_back_pressed)
+	_ready_button.toggled.connect(_on_ready_toggled)
+	_start_button.pressed.connect(_on_start_pressed)
+	_leave_button.pressed.connect(_on_leave_pressed)
 
 	GDSync.connected.connect(_on_connected)
 	GDSync.connection_failed.connect(_on_connection_failed)
@@ -76,7 +89,7 @@ func _on_host_pressed() -> void:
 	if _busy or not _connected:
 		return
 	_busy = true
-	_set_status("بنعمل اللوبي...")
+	_set_status("بنعمل الروم...")
 	GDSync.lobby_create(_generate_code(), "", false, MAX_PLAYERS)
 
 
@@ -93,7 +106,7 @@ func _on_lobby_creation_failed(_lobby_name: String, error: int) -> void:
 	if error == ENUMS.LOBBY_CREATION_ERROR.ON_COOLDOWN:
 		_set_status("استنى كام ثانية وجرّب تاني")
 	else:
-		_set_status("مقدرناش نعمل اللوبي (%d)" % error)
+		_set_status("مقدرناش نعمل الروم (%d)" % error)
 
 
 func _generate_code() -> String:
@@ -105,7 +118,19 @@ func _generate_code() -> String:
 
 # ------------------------------------------------------------------ Join
 
-func _on_join_pressed() -> void:
+func _on_join_screen_pressed() -> void:
+	_set_status("")
+	_code_input.text = ""
+	_show_screen("join")
+	_code_input.grab_focus()
+
+
+func _on_back_pressed() -> void:
+	_set_status("")
+	_show_screen("menu")
+
+
+func _on_confirm_join_pressed() -> void:
 	if _busy or not _connected:
 		return
 	var code: String = _code_input.text.strip_edges().to_upper()
@@ -121,11 +146,11 @@ func _on_lobby_join_failed(_lobby_name: String, error: int) -> void:
 	_busy = false
 	match error:
 		ENUMS.LOBBY_JOIN_ERROR.LOBBY_DOES_NOT_EXIST:
-			_set_status("الكود غلط أو اللوبي مش موجود")
+			_set_status("الكود غلط أو الروم مش موجودة")
 		ENUMS.LOBBY_JOIN_ERROR.LOBBY_IS_FULL:
-			_set_status("اللوبي ممتلي")
+			_set_status("الروم ممتلية")
 		ENUMS.LOBBY_JOIN_ERROR.LOBBY_IS_CLOSED:
-			_set_status("اللوبي اتقفل")
+			_set_status("الروم اتقفلت")
 		_:
 			_set_status("مقدرناش ندخل (%d)" % error)
 
@@ -133,14 +158,14 @@ func _on_lobby_join_failed(_lobby_name: String, error: int) -> void:
 func _on_lobby_joined(lobby_name: String) -> void:
 	_busy = false
 	_set_status("")
-	_code_label.text = "الكود: %s" % lobby_name
+	_code_label.text = "كود الروم: %s" % lobby_name
 	GDSync.player_set_data(READY_KEY, false)
 	_ready_button.set_pressed_no_signal(false)
-	_show_screen("lobby")
+	_show_screen("room")
 	_refresh_lobby()
 
 
-# ------------------------------------------------------------------ اللوبي
+# ------------------------------------------------------------------ الروم
 
 func _on_ready_toggled(pressed: bool) -> void:
 	GDSync.player_set_data(READY_KEY, pressed)
@@ -167,8 +192,8 @@ func _on_change_scene_failed(_path: String) -> void:
 
 func _on_leave_pressed() -> void:
 	GDSync.lobby_leave()
-	_show_screen("menu")
 	_set_status("")
+	_show_screen("menu")
 
 
 func _refresh_lobby_signal(_client_id: int) -> void:
@@ -202,7 +227,7 @@ func _can_start() -> bool:
 
 
 func _refresh_lobby() -> void:
-	if _lobby_box == null or not _lobby_box.visible:
+	if not _room_screen.visible:
 		return
 	var is_host: bool = GDSync.is_host()
 	var my_id: int = GDSync.get_client_id()
@@ -223,92 +248,15 @@ func _refresh_lobby() -> void:
 	_start_button.disabled = _starting or not _can_start()
 
 
-# ------------------------------------------------------------------ الواجهة
+# ------------------------------------------------------------------ عرض الشاشات
 
 func _show_screen(screen: String) -> void:
-	_menu_box.visible = (screen == "menu")
-	_lobby_box.visible = (screen == "lobby")
+	_menu_screen.visible = (screen == "menu")
+	_join_screen.visible = (screen == "join")
+	_room_screen.visible = (screen == "room")
 	if screen == "connecting":
 		_set_status("بنتصل...")
 
 
 func _set_status(text: String) -> void:
-	if _status_label != null:
-		_status_label.text = text
-
-
-func _build_ui() -> void:
-	set_anchors_preset(Control.PRESET_FULL_RECT)
-
-	var center := CenterContainer.new()
-	center.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(center)
-
-	var root_box := VBoxContainer.new()
-	root_box.custom_minimum_size = Vector2(320.0, 0.0)
-	root_box.add_theme_constant_override("separation", 12)
-	center.add_child(root_box)
-
-	var title := Label.new()
-	title.text = "Online Co-op"
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	root_box.add_child(title)
-
-	_status_label = Label.new()
-	_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	root_box.add_child(_status_label)
-
-	# شاشة القائمة
-	_menu_box = VBoxContainer.new()
-	_menu_box.add_theme_constant_override("separation", 10)
-	root_box.add_child(_menu_box)
-
-	_host_button = Button.new()
-	_host_button.text = "Host"
-	_host_button.pressed.connect(_on_host_pressed)
-	_menu_box.add_child(_host_button)
-
-	_code_input = LineEdit.new()
-	_code_input.placeholder_text = "اكتب الكود"
-	_code_input.max_length = CODE_LENGTH
-	_code_input.alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_code_input.text_submitted.connect(func(_text: String) -> void: _on_join_pressed())
-	_menu_box.add_child(_code_input)
-
-	_join_button = Button.new()
-	_join_button.text = "Join"
-	_join_button.pressed.connect(_on_join_pressed)
-	_menu_box.add_child(_join_button)
-
-	# شاشة اللوبي
-	_lobby_box = VBoxContainer.new()
-	_lobby_box.add_theme_constant_override("separation", 10)
-	root_box.add_child(_lobby_box)
-
-	_code_label = Label.new()
-	_code_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_lobby_box.add_child(_code_label)
-
-	_players_label = Label.new()
-	_players_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_lobby_box.add_child(_players_label)
-
-	_ready_button = Button.new()
-	_ready_button.text = "Ready"
-	_ready_button.toggle_mode = true
-	_ready_button.toggled.connect(_on_ready_toggled)
-	_lobby_box.add_child(_ready_button)
-
-	_start_button = Button.new()
-	_start_button.text = "Start"
-	_start_button.pressed.connect(_on_start_pressed)
-	_lobby_box.add_child(_start_button)
-
-	_leave_button = Button.new()
-	_leave_button.text = "Leave"
-	_leave_button.pressed.connect(_on_leave_pressed)
-	_lobby_box.add_child(_leave_button)
-
-	_menu_box.visible = false
-	_lobby_box.visible = false
+	_status_label.text = text

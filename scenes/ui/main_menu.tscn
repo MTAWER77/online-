@@ -10,3 +10,102 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_menu")
+
+[node name="Center" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Content" type="VBoxContainer" parent="Center"]
+custom_minimum_size = Vector2(340, 0)
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="TitleLabel" type="Label" parent="Center/Content"]
+layout_mode = 2
+text = "Online Co-op"
+horizontal_alignment = 1
+
+[node name="StatusLabel" type="Label" parent="Center/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+horizontal_alignment = 1
+autowrap_mode = 3
+
+[node name="MenuScreen" type="VBoxContainer" parent="Center/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="HostButton" type="Button" parent="Center/Content/MenuScreen"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Host"
+
+[node name="JoinButton" type="Button" parent="Center/Content/MenuScreen"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Join"
+
+[node name="JoinScreen" type="VBoxContainer" parent="Center/Content"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="JoinHint" type="Label" parent="Center/Content/JoinScreen"]
+layout_mode = 2
+text = "اكتب كود الروم"
+horizontal_alignment = 1
+
+[node name="CodeInput" type="LineEdit" parent="Center/Content/JoinScreen"]
+unique_name_in_owner = true
+layout_mode = 2
+placeholder_text = "XXXXX"
+alignment = 1
+max_length = 5
+
+[node name="ConfirmJoinButton" type="Button" parent="Center/Content/JoinScreen"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Join"
+
+[node name="BackButton" type="Button" parent="Center/Content/JoinScreen"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Back"
+
+[node name="RoomScreen" type="VBoxContainer" parent="Center/Content"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="CodeLabel" type="Label" parent="Center/Content/RoomScreen"]
+unique_name_in_owner = true
+layout_mode = 2
+horizontal_alignment = 1
+
+[node name="PlayersLabel" type="Label" parent="Center/Content/RoomScreen"]
+unique_name_in_owner = true
+layout_mode = 2
+horizontal_alignment = 1
+
+[node name="ReadyButton" type="Button" parent="Center/Content/RoomScreen"]
+unique_name_in_owner = true
+layout_mode = 2
+toggle_mode = true
+text = "Ready"
+
+[node name="StartButton" type="Button" parent="Center/Content/RoomScreen"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Start"
+
+[node name="LeaveButton" type="Button" parent="Center/Content/RoomScreen"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Leave"
