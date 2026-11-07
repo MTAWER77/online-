@@ -1,6 +1,7 @@
 extends CharacterBody3D
 ## scripts/player/player.gd
-## حركة لاعب Third Person (لاعب واحد، من غير شبكة).
+## حركة لاعب Third Person. كل لاعب بيتحكم في لاعبه هو بس (owner)،
+## واللاعبين التانيين بيتحركوا بالـ PropertySynchronizer (position بس).
 
 @export_group("Movement")
 @export var move_speed: float = 5.0
@@ -16,11 +17,16 @@ extends CharacterBody3D
 
 @onready var camera_pivot: Node3D = $CameraPivot
 @onready var spring_arm: SpringArm3D = $CameraPivot/SpringArm3D
+@onready var camera: Camera3D = $CameraPivot/SpringArm3D/Camera3D
 @onready var visual: Node3D = $Visual
 
 var gravity: float = float(ProjectSettings.get_setting("physics/3d/default_gravity"))
 var yaw: float = 0.0
 var pitch: float = deg_to_rad(-15.0)
+
+# -1 مش معروف لسه، 0 لاعب بعيد، 1 لاعبي أنا
+var _locality: int = -1
+var _last_position: Vector3 = Vector3.ZERO
 
 
 func _ready() -> void:
@@ -28,10 +34,31 @@ func _ready() -> void:
 	# الكاميرا ما تصطدمش بجسم اللاعب نفسه
 	spring_arm.add_excluded_object(get_rid())
 	spring_arm.rotation.x = pitch
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_last_position = global_position
+	_refresh_locality()
+
+
+# لو مفيش اتصال (تشغيل مشهد اللاعب لوحده) اللاعب دايمًا محلي
+func _is_local() -> bool:
+	return not GDSync.is_active() or GDSync.is_gdsync_owner(self)
+
+
+# الـ owner بيتحدد بعد ما اللاعب يتعمل، فبنتأكد كل فريم
+func _refresh_locality() -> void:
+	var new_locality: int = 1 if _is_local() else 0
+	if new_locality == _locality:
+		return
+	_locality = new_locality
+	if _locality == 1:
+		camera.make_current()
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	else:
+		camera.clear_current(false) # كاميرا اللاعب البعيد ما تتفعلش عندي
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if _locality != 1:
+		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var motion := event as InputEventMouseMotion
 		yaw -= motion.relative.x * mouse_sensitivity
@@ -46,6 +73,11 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	_refresh_locality()
+	if _locality != 1:
+		_update_remote_facing(delta)
+		return
+
 	# جاذبية
 	if not is_on_floor():
 		velocity.y -= gravity * delta
@@ -63,15 +95,27 @@ func _physics_process(delta: float) -> void:
 	var horizontal := Vector3(velocity.x, 0.0, velocity.z)
 	if direction.length() > 0.01:
 		horizontal = horizontal.move_toward(direction.normalized() * move_speed, acceleration * delta)
-		# لف الجسم ناحية اتجاه الحركة
-		var target_yaw: float = atan2(-direction.x, -direction.z)
-		visual.rotation.y = lerp_angle(visual.rotation.y, target_yaw, turn_speed * delta)
+		_face_direction(direction, delta)
 	else:
 		horizontal = horizontal.move_toward(Vector3.ZERO, deceleration * delta)
 
 	velocity.x = horizontal.x
 	velocity.z = horizontal.z
 	move_and_slide()
+
+
+# اللاعب البعيد: الـ position بيوصل من الشبكة، والاتجاه بنحسبه من فرق الحركة
+func _update_remote_facing(delta: float) -> void:
+	var moved: Vector3 = global_position - _last_position
+	_last_position = global_position
+	moved.y = 0.0
+	if moved.length() > 0.001:
+		_face_direction(moved, delta)
+
+
+func _face_direction(direction: Vector3, delta: float) -> void:
+	var target_yaw: float = atan2(-direction.x, -direction.z)
+	visual.rotation.y = lerp_angle(visual.rotation.y, target_yaw, turn_speed * delta)
 
 
 # تسجيل الأزرار من الكود عشان ما نعدلش project.godot بإيدينا

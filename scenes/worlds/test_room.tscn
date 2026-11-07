@@ -1,6 +1,8 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="PackedScene" path="res://scenes/players/player.tscn" id="1_player"]
+[ext_resource type="Script" path="res://scripts/multiplayer/network_manager.gd" id="2_net"]
+[ext_resource type="Script" path="res://scripts/multiplayer/host_sync_test.gd" id="3_sync_test"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_grey"]
 albedo_color = Color(0.6, 0.6, 0.6, 1)
@@ -18,6 +20,9 @@ size = Vector3(2, 1, 2)
 [sub_resource type="BoxMesh" id="BoxMesh_step"]
 material = SubResource("StandardMaterial3D_grey")
 size = Vector3(2, 1, 2)
+
+[sub_resource type="BoxMesh" id="BoxMesh_sync"]
+size = Vector3(1, 1, 1)
 
 [node name="TestRoom" type="Node3D"]
 
@@ -43,5 +48,16 @@ shape = SubResource("BoxShape3D_step")
 [node name="MeshInstance3D" type="MeshInstance3D" parent="Step"]
 mesh = SubResource("BoxMesh_step")
 
-[node name="Player" parent="." instance=ExtResource("1_player")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 0)
+[node name="SyncTestBox" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, 0.5, -4)
+script = ExtResource("3_sync_test")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="SyncTestBox"]
+mesh = SubResource("BoxMesh_sync")
+
+[node name="Players" type="Node3D" parent="."]
+
+[node name="NetworkManager" type="Node" parent="."]
+script = ExtResource("2_net")
+player_scene = ExtResource("1_player")
+players_root = NodePath("../Players")

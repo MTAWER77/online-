@@ -1,10 +1,6 @@
-<<<<<<< HEAD
-.godot/
-=======
 # Godot 4+ specific ignores
 .godot/
 /android/
->>>>>>> origin/main
 
 # GD-Sync API keys. Never commit these.
 addons/GD-Sync/keys.cfg
