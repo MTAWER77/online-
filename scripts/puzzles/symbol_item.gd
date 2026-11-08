@@ -1,10 +1,12 @@
 extends "res://scripts/systems/interactable.gd"
 ## scripts/puzzles/symbol_item.gd
-## رمز يتشال ويتحط. اللاعب بيطلب، والـ host هو اللي يقرر مين شايله،
+## رمز يتشال ويتحط ويتحط في الباب. اللاعب بيطلب، والـ host هو اللي يقرر،
 ## والكل بيشوف الرمز فوق راس اللي شايله. لاعب يشيل رمز واحد بس في المرة.
-## (الرؤية المختلفة لكل لاعب هتتضاف بعدين في Perspective System.)
+## مين يشوف الرمز ويلمسه بيتحدد من الـ PerspectiveView اللي جواه (الافتراضي: P1 بس).
 
 signal state_changed(holder_id: int)
+
+const PerspectiveView = preload("res://scripts/systems/perspective_view.gd")
 
 const NO_HOLDER: int = -1
 const ROLE_HOST: int = 1 # نفس قيمة Player.Role.HOST
@@ -16,6 +18,8 @@ const ROLE_CLIENT: int = 2 # نفس قيمة Player.Role.CLIENT
 @export var rest_height: float = 0.45 # ارتفاع مركز الرمز فوق الأرض لما يتحط
 
 var holder_id: int = NO_HOLDER # رقم اللاعب اللي شايله، أو -1 لو متحط
+var consumed: bool = false # اتحط في الباب خلاص
+var _home_position: Vector3 = Vector3.ZERO
 
 @onready var _mesh: MeshInstance3D = $MeshInstance3D
 
@@ -23,13 +27,19 @@ var holder_id: int = NO_HOLDER # رقم اللاعب اللي شايله، أو 
 func _ready() -> void:
 	super()
 	add_to_group("pickups")
-	_build_visual()
+	_home_position = global_position
+	var visual: Dictionary = make_visual(symbol_id)
+	_mesh.mesh = visual["mesh"]
+	var material := StandardMaterial3D.new()
+	material.albedo_color = visual["color"]
+	_mesh.material_override = material
 	# الـ host بس هو اللي يقدر يفرض الحالة على الباقي
 	GDSync.expose_func(_apply_state, ENUMS.EXPOSE_PERMISSION.HOST)
+	GDSync.expose_func(_apply_consumed, ENUMS.EXPOSE_PERMISSION.HOST)
 
 
 func _process(_delta: float) -> void:
-	if holder_id == NO_HOLDER:
+	if holder_id == NO_HOLDER or consumed:
 		return
 	var player: Node3D = _find_player(holder_id)
 	if player != null:
@@ -41,8 +51,10 @@ func get_prompt(client_id: int) -> String:
 
 
 func can_interact(client_id: int) -> bool:
-	if client_id == NO_HOLDER:
+	if consumed or client_id == NO_HOLDER:
 		return false
+	if not PerspectiveView.client_sees(_who_sees(), client_id):
+		return false # اللاعب ده مش شايف الرمز أصلًا
 	if holder_id == client_id:
 		return true # أنا شايله، أقدر أحطه
 	if holder_id != NO_HOLDER:
@@ -58,6 +70,18 @@ func _on_host_interact(client_id: int) -> void:
 		_broadcast_state(NO_HOLDER, _drop_position(client_id))
 
 
+# الباب بينادي الدوال دي عند الـ host
+func host_consume(slot_position: Vector3) -> void:
+	if GDSync.is_active():
+		GDSync.call_func_all(_apply_consumed, slot_position)
+	else:
+		_apply_consumed(slot_position)
+
+
+func host_return_home() -> void:
+	_broadcast_state(NO_HOLDER, _home_position)
+
+
 func _broadcast_state(new_holder: int, pos: Vector3) -> void:
 	if GDSync.is_active():
 		GDSync.call_func_all(_apply_state, new_holder, pos) # بتشتغل عندي وعند التاني
@@ -71,6 +95,18 @@ func _apply_state(new_holder: int, pos: Vector3) -> void:
 	if new_holder == NO_HOLDER:
 		global_position = pos
 	state_changed.emit(holder_id)
+
+
+func _apply_consumed(slot_position: Vector3) -> void:
+	holder_id = NO_HOLDER
+	consumed = true
+	global_position = slot_position
+	state_changed.emit(holder_id)
+
+
+func _who_sees() -> int:
+	var view := get_node_or_null("PerspectiveView")
+	return view.visible_to if view != null else PerspectiveView.Who.EVERYONE
 
 
 func _is_holding_something(client_id: int) -> bool:
@@ -108,10 +144,11 @@ func _find_player(client_id: int) -> Node3D:
 	return null
 
 
-func _build_visual() -> void:
+# شكل ولون الرمز (الباب بيستخدمها كمان عشان يعرض الرمز المطلوب)
+static func make_visual(id: int) -> Dictionary:
 	var mesh: Mesh
 	var color: Color
-	match symbol_id:
+	match id:
 		0:
 			var box := BoxMesh.new()
 			box.size = Vector3(0.7, 0.7, 0.7)
@@ -130,7 +167,4 @@ func _build_visual() -> void:
 			cylinder.height = 0.8
 			mesh = cylinder
 			color = Color(0.3, 0.45, 0.95)
-	var material := StandardMaterial3D.new()
-	material.albedo_color = color
-	_mesh.mesh = mesh
-	_mesh.material_override = material
+	return {"mesh": mesh, "color": color}

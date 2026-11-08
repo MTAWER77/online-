@@ -34,14 +34,17 @@ func _unhandled_input(event: InputEvent) -> void:
 func _find_best_target() -> Variant:
 	var best: Variant = null
 	var best_distance: float = INF
+	var best_priority: int = -999999
 	for raw in get_overlapping_areas():
 		var area: Variant = raw
 		if not area.is_in_group(INTERACTABLE_GROUP):
 			continue
 		if not area.can_interact(area.local_client_id()):
 			continue
+		var priority: int = area.priority
 		var distance: float = _player.global_position.distance_to(area.global_position)
-		if distance < best_distance:
+		if priority > best_priority or (priority == best_priority and distance < best_distance):
+			best_priority = priority
 			best_distance = distance
 			best = area
 	return best
