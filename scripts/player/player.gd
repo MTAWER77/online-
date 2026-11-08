@@ -1,7 +1,8 @@
 extends CharacterBody3D
 ## scripts/player/player.gd
-## حركة لاعب Third Person. كل لاعب بيتحكم في لاعبه هو بس (owner)،
-## واللاعبين التانيين بيتحركوا بالـ PropertySynchronizer (position بس).
+## حركة لاعب Third Person. كل لاعب بيتحكم في لاعبه هو بس،
+## واللاعب التاني بيتحرك عندي بالـ PropertySynchronizer (position بس).
+## الدور (role) بيتحدد من NetworkManager قبل ما اللاعب يدخل المشهد.
 
 @export_group("Movement")
 @export var move_speed: float = 5.0
@@ -15,6 +16,8 @@ extends CharacterBody3D
 @export var min_pitch_deg: float = -60.0 # الكاميرا فوق، بتبص لتحت
 @export var max_pitch_deg: float = 30.0  # الكاميرا تحت، بتبص لفوق
 
+enum Role { NONE, HOST, CLIENT }
+
 @onready var camera_pivot: Node3D = $CameraPivot
 @onready var spring_arm: SpringArm3D = $CameraPivot/SpringArm3D
 @onready var camera: Camera3D = $CameraPivot/SpringArm3D/Camera3D
@@ -24,8 +27,8 @@ var gravity: float = float(ProjectSettings.get_setting("physics/3d/default_gravi
 var yaw: float = 0.0
 var pitch: float = deg_to_rad(-15.0)
 
-# -1 مش معروف لسه، 0 لاعب بعيد، 1 لاعبي أنا
-var _locality: int = -1
+var role: int = Role.NONE # بيتحدد من NetworkManager
+var is_local: bool = false # true لو ده لاعبي أنا على الجهاز ده
 var _last_position: Vector3 = Vector3.ZERO
 
 
@@ -35,29 +38,30 @@ func _ready() -> void:
 	spring_arm.add_excluded_object(get_rid())
 	spring_arm.rotation.x = pitch
 	_last_position = global_position
-	_refresh_locality()
 
-
-# لو مفيش اتصال (تشغيل مشهد اللاعب لوحده) اللاعب دايمًا محلي
-func _is_local() -> bool:
-	return not GDSync.is_active() or GDSync.is_gdsync_owner(self)
-
-
-# الـ owner بيتحدد بعد ما اللاعب يتعمل، فبنتأكد كل فريم
-func _refresh_locality() -> void:
-	var new_locality: int = 1 if _is_local() else 0
-	if new_locality == _locality:
-		return
-	_locality = new_locality
-	if _locality == 1:
+	is_local = _compute_is_local()
+	if is_local:
 		camera.make_current()
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	else:
-		camera.clear_current(false) # كاميرا اللاعب البعيد ما تتفعلش عندي
+		camera.clear_current(false) # كاميرا اللاعب التاني ما تتفعلش عندي
+
+
+# مين صاحب اللاعب ده على الجهاز ده؟
+# الـ host بيتحكم في لاعب HOST، والتاني في لاعب CLIENT.
+func _compute_is_local() -> bool:
+	match role:
+		Role.HOST:
+			return GDSync.is_host()
+		Role.CLIENT:
+			return not GDSync.is_host()
+		_:
+			# من غير دور: لاعب لوحده (تجربة المشهد من غير شبكة) يتحكم فيه
+			return not GDSync.is_active()
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if _locality != 1:
+	if not is_local:
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var motion := event as InputEventMouseMotion
@@ -73,8 +77,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _physics_process(delta: float) -> void:
-	_refresh_locality()
-	if _locality != 1:
+	if not is_local:
 		_update_remote_facing(delta)
 		return
 

@@ -1,17 +1,32 @@
 extends Node
 ## scripts/multiplayer/network_manager.gd
-## بيربط اللاعبين الاتنين اللي في المشهد (Player1 للـ host، Player2 للتاني).
-## كل لاعب بياخد ownership على لاعبه هو بس، فحركته منه والتاني بيستقبلها بالشبكة.
-## الـ host هو صاحب القرار في الحالة المشتركة (الأبواب والألغاز).
+## بيعمل اللاعبين الاتنين بالكود (HostPlayer و ClientPlayer) في نفس الأماكن عند الاتنين.
+## الـ host بيتحكم في HostPlayer، والتاني في ClientPlayer.
+## كل لاعب بيبعت مكان لاعبه بس (PropertySynchronizer: WHEN_HOST / WHEN_CLIENT)،
+## ومن غير ownership ومن غير multiplayer_instantiate، فمفيش سباق بين الاتنين.
+## الـ host كمان هو صاحب القرار في الحالة المشتركة (الأبواب والألغاز).
 
 signal lobby_entered(is_host: bool)
 
+# مسارات الـ nodes لازم تكون ثابتة ومتطابقة عند الاتنين
+const PLAYER_SCENE: PackedScene = preload("res://scenes/players/player.tscn")
+const PLAYERS_ROOT_NAME: String = "SpawnedPlayers"
+const HOST_PLAYER_NAME: String = "HostPlayer"
+const CLIENT_PLAYER_NAME: String = "ClientPlayer"
+
+# قيم لازم تطابق الـ enums بتاعة player.gd و PropertySynchronizer
+const ROLE_HOST: int = 1 # Player.Role.HOST
+const ROLE_CLIENT: int = 2 # Player.Role.CLIENT
+const BROADCAST_WHEN_HOST: int = 0 # PropertySynchronizer.BROADCAST_MODE.WHEN_HOST
+const BROADCAST_WHEN_CLIENT: int = 1 # PropertySynchronizer.BROADCAST_MODE.WHEN_CLIENT
+
 @export var lobby_name: String = "coop-test-room" # بس لما نشغّل المشهد لوحده بـ F6
 @export var use_local_multiplayer: bool = false # للتجربة من غير مفاتيح (GDSync local)
-@export var host_player: Node3D # لاعب الـ host
-@export var client_player: Node3D # لاعب اللاعب التاني
+@export var host_spawn: Vector3 = Vector3(-1.5, 0.1, 0.0)
+@export var client_spawn: Vector3 = Vector3(1.5, 0.1, 0.0)
 
-var _claimed: bool = false
+var _spawned: bool = false
+var _players_root: Node3D
 var _status_label: Label
 
 
@@ -27,11 +42,17 @@ func _ready() -> void:
 	GDSync.client_left.connect(_on_client_left)
 	GDSync.host_changed.connect(_on_host_changed)
 
-	# جاي من القائمة الرئيسية وإحنا أصلًا جوه لوبي: ناخد لاعبنا على طول
+	# المشهد الأب لسه بيجهّز أولاده، فنأجّل الشغل لنهاية الفريم
+	_start.call_deferred()
+
+
+func _start() -> void:
+	# جاي من القائمة الرئيسية وإحنا أصلًا جوه لوبي: نعمل اللاعبين على طول
 	if GDSync.is_active() and GDSync.lobby_get_name() != "":
-		_claim_player()
+		_spawn_players()
 		return
 
+	# تشغيل المشهد لوحده (F6): نتصل وندخل لوبي تجريبي
 	_set_status("Connecting...")
 	if use_local_multiplayer:
 		GDSync.start_local_multiplayer()
@@ -73,33 +94,53 @@ func _on_lobby_creation_failed(failed_lobby: String, error: int) -> void:
 
 
 func _on_lobby_joined(_joined_lobby: String) -> void:
-	_claim_player()
+	_spawn_players()
 
 
 func _on_host_changed(_is_host: bool, _new_host_id: int) -> void:
 	_refresh_status()
 
 
-func _on_client_left(client_id: int) -> void:
-	# اللاعب اللي خرج نخفي لاعبه
-	for p in [host_player, client_player]:
-		if p != null and GDSync.get_gdsync_owner(p) == client_id:
-			p.visible = false
+func _on_client_left(_client_id: int) -> void:
+	# لاعبين بس: اللي خرج هو اللاعب التاني، فنخفي لاعبه
+	if _players_root != null:
+		var other_name: String = CLIENT_PLAYER_NAME if GDSync.is_host() else HOST_PLAYER_NAME
+		var other := _players_root.get_node_or_null(other_name) as Node3D
+		if other != null:
+			other.visible = false
 	_refresh_status()
 
 
-# الـ host ياخد Player1 والتاني ياخد Player2، ونعلن ownership للتاني
-func _claim_player() -> void:
-	if _claimed:
+# ---- عمل اللاعبين ----
+func _spawn_players() -> void:
+	if _spawned:
 		return
-	var mine: Node3D = host_player if GDSync.is_host() else client_player
-	if mine == null:
-		push_error("NetworkManager: host_player / client_player مش متحددين")
-		return
-	_claimed = true
-	GDSync.set_gdsync_owner(mine, GDSync.get_client_id())
+	_spawned = true
+
+	var scene_root: Node = get_parent()
+	_players_root = scene_root.get_node_or_null(PLAYERS_ROOT_NAME) as Node3D
+	if _players_root == null:
+		_players_root = Node3D.new()
+		_players_root.name = PLAYERS_ROOT_NAME
+		scene_root.add_child(_players_root)
+
+	# الاتنين بيعملوا نفس اللاعبين بنفس الأسماء والأماكن
+	_spawn_one(HOST_PLAYER_NAME, ROLE_HOST, BROADCAST_WHEN_HOST, host_spawn)
+	_spawn_one(CLIENT_PLAYER_NAME, ROLE_CLIENT, BROADCAST_WHEN_CLIENT, client_spawn)
+
 	_refresh_status()
 	lobby_entered.emit(GDSync.is_host())
+
+
+func _spawn_one(node_name: String, role: int, broadcast_mode: int, spawn_position: Vector3) -> void:
+	var player := PLAYER_SCENE.instantiate() as Node3D
+	player.name = node_name
+	# الدور ووضع الإرسال لازم يتحددوا قبل ما اللاعب يدخل الشجرة
+	player.set("role", role)
+	var sync: Node = player.get_node("PropertySynchronizer")
+	sync.set("broadcast", broadcast_mode)
+	player.position = spawn_position
+	_players_root.add_child(player)
 
 
 # ---- شاشة حالة صغيرة للتجربة (Debug) ----
@@ -112,9 +153,9 @@ func _build_status_label() -> void:
 
 
 func _refresh_status() -> void:
-	var role: String = "HOST" if GDSync.is_host() else "CLIENT"
+	var role_text: String = "HOST" if GDSync.is_host() else "CLIENT"
 	_set_status("%s | id %d | players %d | F = test sync" % [
-		role, GDSync.get_client_id(), GDSync.lobby_get_player_count()])
+		role_text, GDSync.get_client_id(), GDSync.lobby_get_player_count()])
 
 
 func _set_status(text: String) -> void:
