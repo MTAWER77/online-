@@ -1,20 +1,17 @@
 extends Node
 ## scripts/multiplayer/network_manager.gd
-## الاتصال + إنشاء/دخول اللوبي + عمل لاعب لكل واحد.
-## القاعدة: أول واحد يدخل اللوبي هو الـ host (GD-Sync بتحدده).
-## كل لاعب هو owner للاعبه (حركته منه)، والـ host هو صاحب القرار في الحالة المشتركة.
+## بيربط اللاعبين الاتنين اللي في المشهد (Player1 للـ host، Player2 للتاني).
+## كل لاعب بياخد ownership على لاعبه هو بس، فحركته منه والتاني بيستقبلها بالشبكة.
+## الـ host هو صاحب القرار في الحالة المشتركة (الأبواب والألغاز).
 
 signal lobby_entered(is_host: bool)
 
-@export var lobby_name: String = "coop-test-room"
+@export var lobby_name: String = "coop-test-room" # بس لما نشغّل المشهد لوحده بـ F6
 @export var use_local_multiplayer: bool = false # للتجربة من غير مفاتيح (GDSync local)
-@export var player_scene: PackedScene
-@export var players_root: Node3D
-@export var spawn_points_root: Node3D # فيه Marker3D لكل مكان ظهور (الأول للـ host)
-@export var spawn_origin: Vector3 = Vector3(0.0, 0.1, 0.0) # احتياطي لو مفيش Markers
-@export var spawn_spacing: float = 2.0
+@export var host_player: Node3D # لاعب الـ host
+@export var client_player: Node3D # لاعب اللاعب التاني
 
-var _player_spawned: bool = false
+var _claimed: bool = false
 var _status_label: Label
 
 
@@ -30,11 +27,9 @@ func _ready() -> void:
 	GDSync.client_left.connect(_on_client_left)
 	GDSync.host_changed.connect(_on_host_changed)
 
-	# جاي من القائمة الرئيسية وإحنا أصلًا جوه لوبي: نعمل اللاعب على طول
-	if GDSync.is_active() and GDSync.lobby_get_all_clients().has(GDSync.get_client_id()):
-		_refresh_status()
-		_spawn_local_player()
-		lobby_entered.emit(GDSync.is_host())
+	# جاي من القائمة الرئيسية وإحنا أصلًا جوه لوبي: ناخد لاعبنا على طول
+	if GDSync.is_active() and GDSync.lobby_get_name() != "":
+		_claim_player()
 		return
 
 	_set_status("Connecting...")
@@ -51,13 +46,7 @@ func _on_connected() -> void:
 
 
 func _on_connection_failed(error: int) -> void:
-	match error:
-		ENUMS.CONNECTION_FAILED.INVALID_PUBLIC_KEY:
-			_set_status("Connection failed: invalid keys")
-		ENUMS.CONNECTION_FAILED.TIMEOUT:
-			_set_status("Connection failed: timeout")
-		_:
-			_set_status("Connection failed (%d)" % error)
+	_set_status("Connection failed (%d)" % error)
 	push_error("GDSync connection failed: %d" % error)
 
 
@@ -84,9 +73,7 @@ func _on_lobby_creation_failed(failed_lobby: String, error: int) -> void:
 
 
 func _on_lobby_joined(_joined_lobby: String) -> void:
-	_refresh_status()
-	_spawn_local_player()
-	lobby_entered.emit(GDSync.is_host())
+	_claim_player()
 
 
 func _on_host_changed(_is_host: bool, _new_host_id: int) -> void:
@@ -94,31 +81,25 @@ func _on_host_changed(_is_host: bool, _new_host_id: int) -> void:
 
 
 func _on_client_left(client_id: int) -> void:
-	# الـ host بس هو اللي يمسح لاعب اللي خرج (عشان ما يتمسحش مرتين)
-	if not GDSync.is_host() or players_root == null:
-		return
-	for child in players_root.get_children():
-		if GDSync.get_gdsync_owner(child) == client_id:
-			GDSync.multiplayer_queue_free(child)
+	# اللاعب اللي خرج نخفي لاعبه
+	for p in [host_player, client_player]:
+		if p != null and GDSync.get_gdsync_owner(p) == client_id:
+			p.visible = false
 	_refresh_status()
 
 
-func _spawn_local_player() -> void:
-	if _player_spawned or player_scene == null or players_root == null:
+# الـ host ياخد Player1 والتاني ياخد Player2، ونعلن ownership للتاني
+func _claim_player() -> void:
+	if _claimed:
 		return
-	_player_spawned = true
-
-	# الـ host ياخد المكان الأول والتاني ياخد التاني (مش بنعتمد على قايمة اللاعبين لأنها بتتأخر)
-	var slot: int = 0 if GDSync.is_host() else 1
-	var spawn_position: Vector3 = spawn_origin + Vector3(slot * spawn_spacing, 0.0, 0.0)
-	if spawn_points_root != null and slot < spawn_points_root.get_child_count():
-		var point := spawn_points_root.get_child(slot) as Node3D
-		if point != null:
-			spawn_position = point.global_position
-
-	var player := GDSync.multiplayer_instantiate(player_scene, players_root) as Node3D
-	player.global_position = spawn_position
-	GDSync.set_gdsync_owner(player, GDSync.get_client_id())
+	var mine: Node3D = host_player if GDSync.is_host() else client_player
+	if mine == null:
+		push_error("NetworkManager: host_player / client_player مش متحددين")
+		return
+	_claimed = true
+	GDSync.set_gdsync_owner(mine, GDSync.get_client_id())
+	_refresh_status()
+	lobby_entered.emit(GDSync.is_host())
 
 
 # ---- شاشة حالة صغيرة للتجربة (Debug) ----

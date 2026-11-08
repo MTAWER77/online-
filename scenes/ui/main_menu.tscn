@@ -31,9 +31,11 @@ horizontal_alignment = 1
 
 [node name="StatusLabel" type="Label" parent="Center/Content"]
 unique_name_in_owner = true
+custom_minimum_size = Vector2(340, 40)
 layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.45, 0.45, 1)
 horizontal_alignment = 1
-autowrap_mode = 3
+vertical_alignment = 1
 
 [node name="MenuScreen" type="VBoxContainer" parent="Center/Content"]
 unique_name_in_owner = true

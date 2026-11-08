@@ -30,8 +30,9 @@ const READY_KEY: String = "ready"
 @onready var _leave_button: Button = %LeaveButton
 
 var _connected: bool = false
-var _busy: bool = false # في عملية جارية (إنشاء أو دخول)
+var _busy: bool = false: set = _set_busy # في عملية جارية (إنشاء أو دخول)
 var _starting: bool = false
+var _busy_timer: SceneTreeTimer
 
 
 func _ready() -> void:
@@ -63,6 +64,22 @@ func _ready() -> void:
 		_on_connected()
 	else:
 		GDSync.start_multiplayer()
+
+
+func _set_busy(value: bool) -> void:
+	_busy = value
+	# نقفل الأزرار أثناء العملية عشان ما يتبعتش طلبات كتير ورا بعض
+	for b in [_host_button, _join_button, _confirm_join_button, _back_button]:
+		if b != null:
+			b.disabled = value
+	if value:
+		# لو السيرفر ما ردّش خلال 10 ثواني نفك القفل
+		_busy_timer = get_tree().create_timer(10.0)
+		var t: SceneTreeTimer = _busy_timer
+		t.timeout.connect(func() -> void:
+			if _busy and _busy_timer == t:
+				_busy = false
+				_set_status("السيرفر مردّش، جرّب تاني"))
 
 
 # ------------------------------------------------------------------ الاتصال
@@ -143,6 +160,7 @@ func _on_confirm_join_pressed() -> void:
 
 
 func _on_lobby_join_failed(_lobby_name: String, error: int) -> void:
+	print("lobby_join_failed: ", _lobby_name, " error=", error)
 	_busy = false
 	match error:
 		ENUMS.LOBBY_JOIN_ERROR.LOBBY_DOES_NOT_EXIST:
