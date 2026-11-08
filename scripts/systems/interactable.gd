@@ -8,7 +8,7 @@ extends Area3D
 signal host_interacted(client_id: int)
 
 @export var prompt_text: String = "Interact"
-@export var priority: int = 0 # لو في أكتر من حاجة قريبة، الأعلى أولوية يتختار الأول
+@export var interact_priority: int = 0 # لو في أكتر من حاجة قريبة، الأعلى أولوية يتختار الأول
 
 
 func _ready() -> void:

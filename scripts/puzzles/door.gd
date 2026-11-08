@@ -33,7 +33,7 @@ var _hint_color: Color
 func _ready() -> void:
 	super()
 	prompt_text = "Insert symbol"
-	priority = 1 # قدام الباب وفي إيدك رمز: "Insert" قبل "Drop"
+	interact_priority = 1 # قدام الباب وفي إيدك رمز: "Insert" قبل "Drop"
 	_closed_position = _body.position
 	_build_views()
 	# الـ host بس هو اللي يفرض الحالة على الباقي

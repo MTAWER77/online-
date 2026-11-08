@@ -41,7 +41,7 @@ func _find_best_target() -> Variant:
 			continue
 		if not area.can_interact(area.local_client_id()):
 			continue
-		var priority: int = area.priority
+		var priority: int = area.interact_priority
 		var distance: float = _player.global_position.distance_to(area.global_position)
 		if priority > best_priority or (priority == best_priority and distance < best_distance):
 			best_priority = priority

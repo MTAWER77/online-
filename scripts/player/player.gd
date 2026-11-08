@@ -10,6 +10,7 @@ extends CharacterBody3D
 @export var deceleration: float = 18.0
 @export var jump_velocity: float = 4.8
 @export var turn_speed: float = 12.0
+@export var camera_follow_speed: float = 30.0 # سرعة لحاق الكاميرا باللاعب (تنعيم بين خطوات الفيزيكس)
 
 @export_group("Camera")
 @export var mouse_sensitivity: float = 0.003
@@ -30,6 +31,7 @@ var pitch: float = deg_to_rad(-15.0)
 var role: int = Role.NONE # بيتحدد من NetworkManager
 var is_local: bool = false # true لو ده لاعبي أنا على الجهاز ده
 var _last_position: Vector3 = Vector3.ZERO
+var _pivot_offset: Vector3 = Vector3(0.0, 1.5, 0.0) # مكان الـ pivot فوق اللاعب
 
 
 func _ready() -> void:
@@ -42,6 +44,10 @@ func _ready() -> void:
 
 	is_local = _compute_is_local()
 	if is_local:
+		# الكاميرا بتتحرك كل فريم (مش كل خطوة فيزيكس) عشان الحركة تطلع ناعمة على أي Hz
+		camera_pivot.top_level = true
+		camera_pivot.global_position = global_position + _pivot_offset
+		camera_pivot.rotation = Vector3(0.0, yaw, 0.0)
 		camera.make_current()
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	else:
@@ -59,6 +65,14 @@ func _compute_is_local() -> bool:
 		_:
 			# من غير دور: لاعب لوحده (تجربة المشهد من غير شبكة) يتحكم فيه
 			return not GDSync.is_active()
+
+
+func _process(delta: float) -> void:
+	if not is_local:
+		return
+	var target: Vector3 = global_position + _pivot_offset
+	var weight: float = 1.0 - exp(-camera_follow_speed * delta)
+	camera_pivot.global_position = camera_pivot.global_position.lerp(target, weight)
 
 
 func _unhandled_input(event: InputEvent) -> void:
