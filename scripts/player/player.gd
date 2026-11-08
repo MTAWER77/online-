@@ -65,16 +65,22 @@ func _unhandled_input(event: InputEvent) -> void:
 	if not is_local:
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		var motion := event as InputEventMouseMotion
-		yaw -= motion.relative.x * mouse_sensitivity
-		pitch -= motion.relative.y * mouse_sensitivity
-		pitch = clampf(pitch, deg_to_rad(min_pitch_deg), deg_to_rad(max_pitch_deg))
-		camera_pivot.rotation.y = yaw
-		spring_arm.rotation.x = pitch
+		apply_look((event as InputEventMouseMotion).relative)
 	elif event.is_action_pressed("ui_cancel"):
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE # Esc يحرر الماوس
 	elif event is InputEventMouseButton and event.pressed:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED # كليك يرجّع الماوس
+
+
+# دوران الكاميرا (من الماوس أو من سحب اللمس بتاع تحكم الموبايل)
+func apply_look(relative: Vector2) -> void:
+	if not is_local:
+		return
+	yaw -= relative.x * mouse_sensitivity
+	pitch -= relative.y * mouse_sensitivity
+	pitch = clampf(pitch, deg_to_rad(min_pitch_deg), deg_to_rad(max_pitch_deg))
+	camera_pivot.rotation.y = yaw
+	spring_arm.rotation.x = pitch
 
 
 func _physics_process(delta: float) -> void:

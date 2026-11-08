@@ -1,8 +1,9 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=11 format=3]
 
 [ext_resource type="Script" path="res://scripts/multiplayer/network_manager.gd" id="2_net"]
 [ext_resource type="Script" path="res://scripts/multiplayer/host_sync_test.gd" id="3_sync_test"]
 [ext_resource type="PackedScene" path="res://scenes/puzzles/symbol_item.tscn" id="4_symbol"]
+[ext_resource type="PackedScene" path="res://scenes/ui/mobile_controls.tscn" id="5_mobile"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_grey"]
 albedo_color = Color(0.6, 0.6, 0.6, 1)
@@ -71,3 +72,5 @@ symbol_id = 2
 
 [node name="NetworkManager" type="Node" parent="."]
 script = ExtResource("2_net")
+
+[node name="MobileControls" parent="." instance=ExtResource("5_mobile")]
