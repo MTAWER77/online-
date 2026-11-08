@@ -1,7 +1,8 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://scripts/player/player.gd" id="1_player"]
 [ext_resource type="Script" path="res://addons/GD-Sync/Scripts/Types/PropertySynchronizer.gd" id="2_sync"]
+[ext_resource type="Script" path="res://scripts/systems/interaction_detector.gd" id="3_detector"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.4
@@ -10,6 +11,9 @@ height = 1.8
 [sub_resource type="CapsuleMesh" id="CapsuleMesh_player"]
 radius = 0.4
 height = 1.8
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_detector"]
+radius = 2.4
 
 [sub_resource type="BoxMesh" id="BoxMesh_nose"]
 size = Vector3(0.3, 0.2, 0.3)
@@ -49,3 +53,13 @@ node_path = NodePath("..")
 properties = PackedStringArray("global_position")
 interpolated = true
 interpolation_speed = 30.0
+
+[node name="InteractionDetector" type="Area3D" parent="."]
+collision_layer = 0
+collision_mask = 2
+monitorable = false
+script = ExtResource("3_detector")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="InteractionDetector"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("SphereShape3D_detector")

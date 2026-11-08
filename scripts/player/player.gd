@@ -33,6 +33,7 @@ var _last_position: Vector3 = Vector3.ZERO
 
 
 func _ready() -> void:
+	add_to_group("players")
 	_ensure_input_actions()
 	# الكاميرا ما تصطدمش بجسم اللاعب نفسه
 	spring_arm.add_excluded_object(get_rid())
@@ -128,6 +129,7 @@ func _ensure_input_actions() -> void:
 	_add_key_action(&"move_left", KEY_A)
 	_add_key_action(&"move_right", KEY_D)
 	_add_key_action(&"jump", KEY_SPACE)
+	_add_key_action(&"interact", KEY_E)
 
 
 func _add_key_action(action: StringName, keycode: Key) -> void:
