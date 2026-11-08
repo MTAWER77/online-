@@ -10,7 +10,8 @@ signal lobby_entered(is_host: bool)
 @export var use_local_multiplayer: bool = false # للتجربة من غير مفاتيح (GDSync local)
 @export var player_scene: PackedScene
 @export var players_root: Node3D
-@export var spawn_origin: Vector3 = Vector3(0.0, 0.1, 0.0)
+@export var spawn_points_root: Node3D # فيه Marker3D لكل مكان ظهور (الأول للـ host)
+@export var spawn_origin: Vector3 = Vector3(0.0, 0.1, 0.0) # احتياطي لو مفيش Markers
 @export var spawn_spacing: float = 2.0
 
 var _player_spawned: bool = false
@@ -107,13 +108,16 @@ func _spawn_local_player() -> void:
 		return
 	_player_spawned = true
 
-	# ترتيب الـ IDs ثابت عند الاتنين، فكل لاعب ياخد مكان مختلف
-	var clients: Array = GDSync.lobby_get_all_clients()
-	clients.sort()
-	var index: int = maxi(clients.find(GDSync.get_client_id()), 0)
+	# الـ host ياخد المكان الأول والتاني ياخد التاني (مش بنعتمد على قايمة اللاعبين لأنها بتتأخر)
+	var slot: int = 0 if GDSync.is_host() else 1
+	var spawn_position: Vector3 = spawn_origin + Vector3(slot * spawn_spacing, 0.0, 0.0)
+	if spawn_points_root != null and slot < spawn_points_root.get_child_count():
+		var point := spawn_points_root.get_child(slot) as Node3D
+		if point != null:
+			spawn_position = point.global_position
 
 	var player := GDSync.multiplayer_instantiate(player_scene, players_root) as Node3D
-	player.global_position = spawn_origin + Vector3(index * spawn_spacing, 0.0, 0.0)
+	player.global_position = spawn_position
 	GDSync.set_gdsync_owner(player, GDSync.get_client_id())
 
 
