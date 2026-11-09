@@ -1,8 +1,9 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://scripts/player/player.gd" id="1_player"]
 [ext_resource type="Script" path="res://addons/GD-Sync/Scripts/Types/PropertySynchronizer.gd" id="2_sync"]
 [ext_resource type="Script" path="res://scripts/systems/interaction_detector.gd" id="3_detector"]
+[ext_resource type="Script" path="res://scripts/inventory/inventory.gd" id="4_inventory"]
 
 [sub_resource type="CapsuleShape3D" id="CapsuleShape3D_player"]
 radius = 0.4
@@ -63,3 +64,6 @@ script = ExtResource("3_detector")
 [node name="CollisionShape3D" type="CollisionShape3D" parent="InteractionDetector"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
 shape = SubResource("SphereShape3D_detector")
+
+[node name="Inventory" type="Node" parent="."]
+script = ExtResource("4_inventory")

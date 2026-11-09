@@ -30,6 +30,7 @@ var pitch: float = deg_to_rad(-15.0)
 
 var role: int = Role.NONE # بيتحدد من NetworkManager
 var is_local: bool = false # true لو ده لاعبي أنا على الجهاز ده
+var ui_open: bool = false # واجهة (المخزن مثلًا) مفتوحة: نوقف الحركة والكاميرا
 var _last_position: Vector3 = Vector3.ZERO
 var _pivot_offset: Vector3 = Vector3(0.0, 1.5, 0.0) # مكان الـ pivot فوق اللاعب
 
@@ -75,8 +76,13 @@ func _process(delta: float) -> void:
 	camera_pivot.global_position = camera_pivot.global_position.lerp(target, weight)
 
 
+# بتتنادى من الواجهات (المخزن) لما تتفتح وتتقفل
+func set_ui_open(value: bool) -> void:
+	ui_open = value
+
+
 func _unhandled_input(event: InputEvent) -> void:
-	if not is_local:
+	if not is_local or ui_open:
 		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		apply_look((event as InputEventMouseMotion).relative)
@@ -88,7 +94,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 # دوران الكاميرا (من الماوس أو من سحب اللمس بتاع تحكم الموبايل)
 func apply_look(relative: Vector2) -> void:
-	if not is_local:
+	if not is_local or ui_open:
 		return
 	yaw -= relative.x * mouse_sensitivity
 	pitch -= relative.y * mouse_sensitivity
@@ -107,11 +113,13 @@ func _physics_process(delta: float) -> void:
 		velocity.y -= gravity * delta
 
 	# قفز
-	if Input.is_action_just_pressed("jump") and is_on_floor():
+	if Input.is_action_just_pressed("jump") and is_on_floor() and not ui_open:
 		velocity.y = jump_velocity
 
 	# اتجاه الحركة نسبةً لاتجاه الكاميرا (yaw بس)
-	var input_dir: Vector2 = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
+	var input_dir: Vector2 = Vector2.ZERO
+	if not ui_open:
+		input_dir = Input.get_vector("move_left", "move_right", "move_forward", "move_back")
 	var cam_basis := Basis(Vector3.UP, yaw)
 	var direction: Vector3 = cam_basis * Vector3(input_dir.x, 0.0, input_dir.y)
 

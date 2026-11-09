@@ -3,10 +3,11 @@
 [ext_resource type="Script" path="res://scripts/multiplayer/network_manager.gd" id="2_net"]
 [ext_resource type="Script" path="res://scripts/multiplayer/host_sync_test.gd" id="3_sync_test"]
 [ext_resource type="PackedScene" path="res://scenes/ui/mobile_controls.tscn" id="5_mobile"]
-[ext_resource type="PackedScene" path="res://scenes/puzzles/door.tscn" id="6_door"]
-[ext_resource type="PackedScene" path="res://scenes/puzzles/control_panel.tscn" id="7_panel"]
-[ext_resource type="PackedScene" path="res://scenes/puzzles/symbol_board.tscn" id="8_board"]
-[ext_resource type="Script" path="res://scripts/puzzles/sequence_puzzle.gd" id="9_puzzle"]
+[ext_resource type="PackedScene" path="res://scenes/inventory/inventory_ui.tscn" id="10_ui"]
+[ext_resource type="PackedScene" path="res://scenes/inventory/world_item.tscn" id="11_item"]
+[ext_resource type="Resource" path="res://resources/items/wood.tres" id="12_wood"]
+[ext_resource type="Resource" path="res://resources/items/stone.tres" id="13_stone"]
+[ext_resource type="Resource" path="res://resources/items/apple.tres" id="14_apple"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_grey"]
 albedo_color = Color(0.6, 0.6, 0.6, 1)
@@ -59,21 +60,34 @@ script = ExtResource("3_sync_test")
 [node name="MeshInstance3D" type="MeshInstance3D" parent="SyncTestBox"]
 mesh = SubResource("BoxMesh_sync")
 
-[node name="Door" parent="." instance=ExtResource("6_door")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -8)
-required_symbol_id = 1
+[node name="Items" type="Node3D" parent="."]
 
-[node name="ControlPanel" parent="." instance=ExtResource("7_panel")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 0, -2)
+[node name="Wood1" parent="Items" instance=ExtResource("11_item")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3, 0.35, -3)
+item = ExtResource("12_wood")
+amount = 12
 
-[node name="SymbolBoard" parent="." instance=ExtResource("8_board")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -7, 0, -2)
+[node name="Wood2" parent="Items" instance=ExtResource("11_item")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.5, 0.35, -5)
+item = ExtResource("12_wood")
+amount = 10
 
-[node name="SequencePuzzle" type="Node" parent="."]
-script = ExtResource("9_puzzle")
-board_path = NodePath("../SymbolBoard")
-door_path = NodePath("../Door")
-button_paths = Array[NodePath]([NodePath("../ControlPanel/Button1"), NodePath("../ControlPanel/Button2"), NodePath("../ControlPanel/Button3")])
+[node name="Stone1" parent="Items" instance=ExtResource("11_item")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1.5, 0.35, -5)
+item = ExtResource("13_stone")
+amount = 6
+
+[node name="Stone2" parent="Items" instance=ExtResource("11_item")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3, 0.35, -3)
+item = ExtResource("13_stone")
+amount = 4
+
+[node name="Apple1" parent="Items" instance=ExtResource("11_item")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.35, -3.5)
+item = ExtResource("14_apple")
+amount = 3
+
+[node name="InventoryUI" parent="." instance=ExtResource("10_ui")]
 
 [node name="NetworkManager" type="Node" parent="."]
 script = ExtResource("2_net")

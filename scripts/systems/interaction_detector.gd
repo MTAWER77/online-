@@ -24,7 +24,7 @@ func _process(_delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if _target == null or _player == null or not _player.get("is_local"):
+	if _target == null or _player == null or not _player.get("is_local") or _player.get("ui_open"):
 		return
 	if event.is_action_pressed("interact"):
 		_target.request_interact()
