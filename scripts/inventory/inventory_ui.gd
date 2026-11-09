@@ -1,7 +1,7 @@
 extends CanvasLayer
 ## scripts/inventory/inventory_ui.gd
 ## واجهة المخزن: Tab أو I للفتح والقفل، Esc للقفل. شكلها كله في inventory_ui.tscn.
-## بتعرض مخزن اللاعب المحلي بس. سحب وإفلات بين الخانات، وتفاصيل العنصر على اليمين.
+## بتعرض شبكة 5x4 من مخزن اللاعب المحلي. سحب وإفلات بين الخانات (وبين الـ hotbar كمان)، واسم العنصر ووصفه تحت الشبكة.
 
 const SlotScene: PackedScene = preload("res://scenes/inventory/inventory_slot.tscn")
 const InventoryScript = preload("res://scripts/inventory/inventory.gd")
@@ -9,14 +9,10 @@ const TOGGLE_ACTION: StringName = &"inventory"
 
 @onready var _root: Control = %Root
 @onready var _grid: GridContainer = %Grid
-@onready var _item_name: Label = %ItemName
-@onready var _item_count: Label = %ItemCount
-@onready var _item_description: Label = %ItemDescription
-@onready var _empty_hint: Label = %EmptyHint
+@onready var _info: Label = %Info
 
 var _inventory: Node = null
 var _slots: Array = []
-var _selected: int = -1
 var _hovered: int = -1
 var _tween: Tween
 
@@ -83,10 +79,9 @@ func _bind(inventory: Node) -> void:
 	for slot in _slots:
 		slot.queue_free()
 	_slots.clear()
-	for i in _inventory.slot_count:
+	for i in _inventory.grid_slots:
 		var slot: Variant = SlotScene.instantiate()
 		slot.index = i
-		slot.clicked.connect(_on_slot_clicked)
 		slot.hovered.connect(_on_slot_hovered)
 		slot.dropped_on.connect(_on_slot_dropped)
 		_grid.add_child(slot)
@@ -98,37 +93,23 @@ func _refresh() -> void:
 		return
 	for i in _slots.size():
 		_slots[i].set_item(_inventory.items[i], _inventory.counts[i])
-		_slots[i].set_selected(i == _selected)
-	_update_details()
+	_update_info()
 
 
-func _update_details() -> void:
-	var shown: int = _hovered if _hovered >= 0 and _inventory.items[_hovered] != null else _selected
-	if shown < 0 or _inventory.items[shown] == null:
-		_item_name.text = ""
-		_item_count.text = ""
-		_item_description.text = ""
-		_empty_hint.visible = true
+func _update_info() -> void:
+	if _inventory == null or _hovered < 0 or _inventory.items[_hovered] == null:
+		_info.text = ""
 		return
-	var item: Resource = _inventory.items[shown]
-	_empty_hint.visible = false
-	_item_name.text = item.display_name
-	_item_count.text = "x%d  (max %d)" % [_inventory.counts[shown], item.max_stack]
-	_item_description.text = item.description
-
-
-func _on_slot_clicked(index: int) -> void:
-	_selected = index
-	_refresh()
+	var item: Resource = _inventory.items[_hovered]
+	_info.text = "%s  x%d  -  %s" % [item.display_name, _inventory.counts[_hovered], item.description]
 
 
 func _on_slot_hovered(index: int) -> void:
 	_hovered = index
-	_update_details()
+	_update_info()
 
 
 func _on_slot_dropped(from_index: int, to_index: int) -> void:
-	_selected = to_index
 	_inventory.move_slot(from_index, to_index) # بتعمل changed فالواجهة بتتحدث
 
 

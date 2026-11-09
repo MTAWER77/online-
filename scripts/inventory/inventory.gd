@@ -2,19 +2,49 @@ extends Node
 ## scripts/inventory/inventory.gd
 ## مخزن اللاعب (بيانات بس). كل لاعب عنده مخزنه الخاص على جهازه.
 ## الشكل: items[i] = نوع العنصر (أو null)، counts[i] = العدد، في كل خانة.
+## الخانات: 0..grid_slots-1 هي الشبكة، وبعدها خانات الـ hotbar (hotbar_index(i)).
 
 signal changed
+signal hotbar_selection_changed(index: int) # 0..hotbar_slots-1
 
-@export var slot_count: int = 20
+@export var grid_slots: int = 20
+@export var hotbar_slots: int = 5
 
+var slot_count: int = 0
 var items: Array = []
 var counts: Array[int] = []
+var selected_hotbar: int = 0
+var _fill_order: Array[int] = []
 
 
 func _ready() -> void:
+	slot_count = grid_slots + hotbar_slots
 	items.resize(slot_count)
 	counts.resize(slot_count)
 	counts.fill(0)
+	# العناصر الجديدة بتروح للـ hotbar الأول وبعدها الشبكة
+	for i in hotbar_slots:
+		_fill_order.append(hotbar_index(i))
+	for i in grid_slots:
+		_fill_order.append(i)
+
+
+# رقم خانة الـ hotbar رقم i (0..4) جوه المخزن
+func hotbar_index(i: int) -> int:
+	return grid_slots + i
+
+
+func select_hotbar(i: int) -> void:
+	var wrapped: int = posmod(i, hotbar_slots)
+	if wrapped == selected_hotbar:
+		return
+	selected_hotbar = wrapped
+	hotbar_selection_changed.emit(selected_hotbar)
+
+
+# العنصر في خانة الـ hotbar المختارة (أو null)
+func get_selected_item() -> Resource:
+	return items[hotbar_index(selected_hotbar)]
 
 
 # مخزن اللاعب المحلي على الجهاز ده (أو null)
@@ -30,7 +60,7 @@ static func get_local(tree: SceneTree) -> Node:
 func add_item(item: Resource, amount: int) -> int:
 	var left: int = amount
 	# 1) كمّل الأكوام الموجودة من نفس النوع
-	for i in slot_count:
+	for i in _fill_order:
 		if left <= 0:
 			break
 		if _same(items[i], item) and counts[i] < item.max_stack:
@@ -38,7 +68,7 @@ func add_item(item: Resource, amount: int) -> int:
 			counts[i] += add
 			left -= add
 	# 2) الخانات الفاضية
-	for i in slot_count:
+	for i in _fill_order:
 		if left <= 0:
 			break
 		if items[i] == null:

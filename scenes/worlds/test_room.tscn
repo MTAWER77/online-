@@ -4,6 +4,7 @@
 [ext_resource type="Script" path="res://scripts/multiplayer/host_sync_test.gd" id="3_sync_test"]
 [ext_resource type="PackedScene" path="res://scenes/ui/mobile_controls.tscn" id="5_mobile"]
 [ext_resource type="PackedScene" path="res://scenes/inventory/inventory_ui.tscn" id="10_ui"]
+[ext_resource type="PackedScene" path="res://scenes/inventory/hotbar_ui.tscn" id="15_hotbar"]
 [ext_resource type="PackedScene" path="res://scenes/inventory/world_item.tscn" id="11_item"]
 [ext_resource type="Resource" path="res://resources/items/wood.tres" id="12_wood"]
 [ext_resource type="Resource" path="res://resources/items/stone.tres" id="13_stone"]
@@ -88,6 +89,8 @@ item = ExtResource("14_apple")
 amount = 3
 
 [node name="InventoryUI" parent="." instance=ExtResource("10_ui")]
+
+[node name="HotbarUI" parent="." instance=ExtResource("15_hotbar")]
 
 [node name="NetworkManager" type="Node" parent="."]
 script = ExtResource("2_net")

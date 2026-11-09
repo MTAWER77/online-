@@ -14,6 +14,7 @@ signal dropped_on(from_index: int, to_index: int)
 @onready var _letter: Label = $Margin/Placeholder/Letter
 @onready var _icon: TextureRect = $Margin/Icon
 @onready var _count: Label = $Count
+@onready var _hint: Label = $KeyHint
 
 var index: int = 0
 var item: Resource = null
@@ -48,9 +49,18 @@ func set_item(new_item: Resource, count: int) -> void:
 	_count.visible = count > 1
 
 
+# رقم صغير في الركن (رقم زرار الـ hotbar)
+func set_hint(text: String) -> void:
+	_hint.text = text
+
+
 func set_selected(value: bool) -> void:
 	_is_selected = value
 	_update_style()
+	# حركة خفيفة: الخانة المختارة بتكبر شوية
+	pivot_offset = size * 0.5
+	var tween: Tween = create_tween()
+	tween.tween_property(self, "scale", Vector2(1.08, 1.08) if value else Vector2.ONE, 0.08)
 
 
 func _update_style() -> void:

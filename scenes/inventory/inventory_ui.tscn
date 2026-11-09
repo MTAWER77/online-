@@ -1,37 +1,18 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/inventory/inventory_ui.gd" id="1_ui"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_window"]
-bg_color = Color(0.07, 0.08, 0.12, 0.97)
-border_width_left = 2
-border_width_top = 2
-border_width_right = 2
-border_width_bottom = 2
-border_color = Color(0.23, 0.27, 0.37, 1)
-corner_radius_top_left = 18
-corner_radius_top_right = 18
-corner_radius_bottom_right = 18
-corner_radius_bottom_left = 18
-shadow_color = Color(0, 0, 0, 0.55)
-shadow_size = 24
-
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_details"]
-bg_color = Color(0.1, 0.12, 0.18, 1)
+bg_color = Color(0.05, 0.05, 0.07, 0.9)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.23, 0.27, 0.37, 1)
-corner_radius_top_left = 12
-corner_radius_top_right = 12
-corner_radius_bottom_right = 12
-corner_radius_bottom_left = 12
-
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_line"]
-bg_color = Color(0.23, 0.27, 0.37, 1)
-content_margin_top = 1.0
-content_margin_bottom = 1.0
+border_color = Color(1, 1, 1, 0.14)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
 
 [node name="InventoryUI" type="CanvasLayer"]
 layer = 5
@@ -53,7 +34,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-color = Color(0, 0, 0, 0.55)
+color = Color(0, 0, 0, 0.5)
 
 [node name="Center" type="CenterContainer" parent="Root"]
 layout_mode = 1
@@ -65,20 +46,19 @@ grow_vertical = 2
 mouse_filter = 2
 
 [node name="Window" type="PanelContainer" parent="Root/Center"]
-unique_name_in_owner = true
 layout_mode = 2
 theme_override_styles/panel = SubResource("StyleBoxFlat_window")
 
 [node name="Margin" type="MarginContainer" parent="Root/Center/Window"]
 layout_mode = 2
-theme_override_constants/margin_left = 28
-theme_override_constants/margin_top = 22
-theme_override_constants/margin_right = 28
-theme_override_constants/margin_bottom = 26
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 14
 
 [node name="VBox" type="VBoxContainer" parent="Root/Center/Window/Margin"]
 layout_mode = 2
-theme_override_constants/separation = 14
+theme_override_constants/separation = 10
 
 [node name="Header" type="HBoxContainer" parent="Root/Center/Window/Margin/VBox"]
 layout_mode = 2
@@ -86,71 +66,27 @@ layout_mode = 2
 [node name="Title" type="Label" parent="Root/Center/Window/Margin/VBox/Header"]
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_colors/font_color = Color(0.95, 0.72, 0.29, 1)
-theme_override_font_sizes/font_size = 30
+theme_override_colors/font_color = Color(1, 1, 1, 0.9)
+theme_override_font_sizes/font_size = 18
 text = "Inventory"
 
 [node name="CloseHint" type="Label" parent="Root/Center/Window/Margin/VBox/Header"]
 layout_mode = 2
-size_flags_vertical = 1
-theme_override_colors/font_color = Color(0.5, 0.55, 0.65, 1)
-theme_override_font_sizes/font_size = 16
-text = "Tab / I / Esc  to close"
-vertical_alignment = 1
+theme_override_colors/font_color = Color(1, 1, 1, 0.4)
+theme_override_font_sizes/font_size = 12
+text = "Tab / I"
 
-[node name="Line" type="HSeparator" parent="Root/Center/Window/Margin/VBox"]
-layout_mode = 2
-theme_override_styles/separator = SubResource("StyleBoxFlat_line")
-
-[node name="Body" type="HBoxContainer" parent="Root/Center/Window/Margin/VBox"]
-layout_mode = 2
-theme_override_constants/separation = 24
-
-[node name="Grid" type="GridContainer" parent="Root/Center/Window/Margin/VBox/Body"]
+[node name="Grid" type="GridContainer" parent="Root/Center/Window/Margin/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_constants/h_separation = 8
-theme_override_constants/v_separation = 8
+theme_override_constants/h_separation = 6
+theme_override_constants/v_separation = 6
 columns = 5
 
-[node name="Details" type="PanelContainer" parent="Root/Center/Window/Margin/VBox/Body"]
-custom_minimum_size = Vector2(300, 0)
-layout_mode = 2
-theme_override_styles/panel = SubResource("StyleBoxFlat_details")
-
-[node name="Margin" type="MarginContainer" parent="Root/Center/Window/Margin/VBox/Body/Details"]
-layout_mode = 2
-theme_override_constants/margin_left = 18
-theme_override_constants/margin_top = 16
-theme_override_constants/margin_right = 18
-theme_override_constants/margin_bottom = 16
-
-[node name="VBox" type="VBoxContainer" parent="Root/Center/Window/Margin/VBox/Body/Details/Margin"]
-layout_mode = 2
-theme_override_constants/separation = 8
-
-[node name="ItemName" type="Label" parent="Root/Center/Window/Margin/VBox/Body/Details/Margin/VBox"]
+[node name="Info" type="Label" parent="Root/Center/Window/Margin/VBox"]
 unique_name_in_owner = true
+custom_minimum_size = Vector2(344, 36)
 layout_mode = 2
-theme_override_font_sizes/font_size = 24
-
-[node name="ItemCount" type="Label" parent="Root/Center/Window/Margin/VBox/Body/Details/Margin/VBox"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_colors/font_color = Color(0.95, 0.72, 0.29, 1)
-theme_override_font_sizes/font_size = 16
-
-[node name="ItemDescription" type="Label" parent="Root/Center/Window/Margin/VBox/Body/Details/Margin/VBox"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_colors/font_color = Color(0.75, 0.78, 0.85, 1)
-theme_override_font_sizes/font_size = 16
-autowrap_mode = 3
-
-[node name="EmptyHint" type="Label" parent="Root/Center/Window/Margin/VBox/Body/Details/Margin/VBox"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_colors/font_color = Color(0.5, 0.55, 0.65, 1)
-theme_override_font_sizes/font_size = 16
-text = "Select or hover an item"
+theme_override_colors/font_color = Color(1, 1, 1, 0.6)
+theme_override_font_sizes/font_size = 13
 autowrap_mode = 3
