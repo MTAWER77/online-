@@ -5,6 +5,8 @@ extends Node
 ## الخانات: 0..grid_slots-1 هي الشبكة، وبعدها خانات الـ hotbar (hotbar_index(i)).
 
 signal changed
+
+enum CraftResult { OK, MISSING, FULL }
 signal hotbar_selection_changed(index: int) # 0..hotbar_slots-1
 
 @export var grid_slots: int = 20
@@ -115,3 +117,54 @@ func move_slot(from_index: int, to_index: int) -> void:
 
 func _same(a: Variant, b: Variant) -> bool:
 	return a != null and b != null and a.id == b.id
+
+
+# ---- التصنيع (محلي: المخزن خاص باللاعب، فمفيش داعي للـ host) ----
+# إجمالي عدد النوع ده في كل الخانات
+func count_of(item: Resource) -> int:
+	var total: int = 0
+	for i in slot_count:
+		if _same(items[i], item):
+			total += counts[i]
+	return total
+
+
+# هل التصنيع ممكن؟ (OK، أو ناقص مواد، أو مفيش مكان للناتج بعد خصم المواد)
+func check_craft(recipe: Resource) -> int:
+	for k in recipe.ingredient_items.size():
+		if count_of(recipe.ingredient_items[k]) < recipe.ingredient_amounts[k]:
+			return CraftResult.MISSING
+	var saved_items: Array = items.duplicate()
+	var saved_counts: Array[int] = counts.duplicate()
+	_consume(recipe)
+	var fits: bool = can_add(recipe.result, recipe.result_amount)
+	for i in slot_count:
+		items[i] = saved_items[i]
+		counts[i] = saved_counts[i]
+	return CraftResult.OK if fits else CraftResult.FULL
+
+
+# بيخصم المواد ويحط الناتج في المخزن (أو يرجّع سبب الفشل)
+func craft(recipe: Resource) -> int:
+	var status: int = check_craft(recipe)
+	if status != CraftResult.OK:
+		return status
+	_consume(recipe)
+	add_item(recipe.result, recipe.result_amount) # بتعمل changed
+	return CraftResult.OK
+
+
+func _consume(recipe: Resource) -> void:
+	for k in recipe.ingredient_items.size():
+		var item: Resource = recipe.ingredient_items[k]
+		var left: int = recipe.ingredient_amounts[k]
+		for i in slot_count:
+			if left <= 0:
+				break
+			if _same(items[i], item):
+				var taken: int = mini(counts[i], left)
+				counts[i] -= taken
+				left -= taken
+				if counts[i] <= 0:
+					items[i] = null
+					counts[i] = 0

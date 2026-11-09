@@ -9,6 +9,7 @@
 [ext_resource type="Resource" path="res://resources/items/wood.tres" id="12_wood"]
 [ext_resource type="Resource" path="res://resources/items/stone.tres" id="13_stone"]
 [ext_resource type="Resource" path="res://resources/items/apple.tres" id="14_apple"]
+[ext_resource type="Resource" path="res://resources/items/fiber.tres" id="16_fiber"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_grey"]
 albedo_color = Color(0.6, 0.6, 0.6, 1)
@@ -87,6 +88,16 @@ amount = 4
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.35, -3.5)
 item = ExtResource("14_apple")
 amount = 3
+
+[node name="Fiber1" parent="Items" instance=ExtResource("11_item")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.5, 0.35, -3.5)
+item = ExtResource("16_fiber")
+amount = 6
+
+[node name="Fiber2" parent="Items" instance=ExtResource("11_item")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.5, 0.35, -5)
+item = ExtResource("16_fiber")
+amount = 5
 
 [node name="InventoryUI" parent="." instance=ExtResource("10_ui")]
 

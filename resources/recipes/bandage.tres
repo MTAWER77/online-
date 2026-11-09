@@ -1,0 +1,15 @@
+[gd_resource type="Resource" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/inventory/recipe_data.gd" id="1_recipe"]
+[ext_resource type="Resource" path="res://resources/items/bandage.tres" id="2_bandage"]
+[ext_resource type="Resource" path="res://resources/items/fiber.tres" id="3_fiber"]
+
+[resource]
+script = ExtResource("1_recipe")
+display_name = "Bandage"
+description = "Stops bleeding. Made from plant fibers."
+category = 2
+result = ExtResource("2_bandage")
+result_amount = 1
+ingredient_items = Array[Resource]([ExtResource("3_fiber")])
+ingredient_amounts = PackedInt32Array(2)

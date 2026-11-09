@@ -1,6 +1,7 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scripts/inventory/inventory_ui.gd" id="1_ui"]
+[ext_resource type="PackedScene" path="res://scenes/inventory/crafting_panel.tscn" id="2_craft"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_window"]
 bg_color = Color(0.05, 0.05, 0.07, 0.9)
@@ -68,7 +69,7 @@ layout_mode = 2
 size_flags_horizontal = 3
 theme_override_colors/font_color = Color(1, 1, 1, 0.9)
 theme_override_font_sizes/font_size = 18
-text = "Inventory"
+text = "Backpack"
 
 [node name="CloseHint" type="Label" parent="Root/Center/Window/Margin/VBox/Header"]
 layout_mode = 2
@@ -76,17 +77,30 @@ theme_override_colors/font_color = Color(1, 1, 1, 0.4)
 theme_override_font_sizes/font_size = 12
 text = "Tab / I"
 
-[node name="Grid" type="GridContainer" parent="Root/Center/Window/Margin/VBox"]
+[node name="Body" type="HBoxContainer" parent="Root/Center/Window/Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="Left" type="VBoxContainer" parent="Root/Center/Window/Margin/VBox/Body"]
+layout_mode = 2
+size_flags_vertical = 0
+theme_override_constants/separation = 10
+
+[node name="Grid" type="GridContainer" parent="Root/Center/Window/Margin/VBox/Body/Left"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/h_separation = 6
 theme_override_constants/v_separation = 6
 columns = 5
 
-[node name="Info" type="Label" parent="Root/Center/Window/Margin/VBox"]
+[node name="Info" type="Label" parent="Root/Center/Window/Margin/VBox/Body/Left"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(344, 36)
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 1, 1, 0.6)
 theme_override_font_sizes/font_size = 13
 autowrap_mode = 3
+
+[node name="Crafting" parent="Root/Center/Window/Margin/VBox/Body" instance=ExtResource("2_craft")]
+unique_name_in_owner = true
+layout_mode = 2

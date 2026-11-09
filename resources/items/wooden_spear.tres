@@ -1,0 +1,11 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/inventory/item_data.gd" id="1_data"]
+
+[resource]
+script = ExtResource("1_data")
+id = &"wooden_spear"
+display_name = "Wooden Spear"
+description = "A simple reach weapon for hunting."
+color = Color(0.75, 0.55, 0.32, 1)
+max_stack = 1

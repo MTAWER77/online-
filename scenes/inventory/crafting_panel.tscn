@@ -1,0 +1,278 @@
+[gd_scene load_steps=14 format=3]
+
+[ext_resource type="Script" path="res://scripts/inventory/crafting_panel.gd" id="1_panel"]
+[ext_resource type="Resource" path="res://resources/recipes/stone_axe.tres" id="2_stone_axe"]
+[ext_resource type="Resource" path="res://resources/recipes/stone_pickaxe.tres" id="3_stone_pickaxe"]
+[ext_resource type="Resource" path="res://resources/recipes/wooden_spear.tres" id="4_wooden_spear"]
+[ext_resource type="Resource" path="res://resources/recipes/stone_knife.tres" id="5_stone_knife"]
+[ext_resource type="Resource" path="res://resources/recipes/torch.tres" id="6_torch"]
+[ext_resource type="Resource" path="res://resources/recipes/bandage.tres" id="7_bandage"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panel"]
+bg_color = Color(1, 1, 1, 0.035)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(1, 1, 1, 0.1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_tile"]
+bg_color = Color(1, 1, 1, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_tab_hover"]
+bg_color = Color(1, 1, 1, 0.05)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+content_margin_left = 10.0
+content_margin_top = 4.0
+content_margin_right = 10.0
+content_margin_bottom = 4.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_tab_pressed"]
+bg_color = Color(1, 1, 1, 0.09)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+border_width_bottom = 2
+content_margin_left = 10.0
+content_margin_top = 4.0
+content_margin_right = 10.0
+content_margin_bottom = 4.0
+
+[sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_tab"]
+content_margin_left = 10.0
+content_margin_top = 4.0
+content_margin_right = 10.0
+content_margin_bottom = 4.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_craft"]
+bg_color = Color(0.2, 0.5, 0.38, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_craft_hover"]
+bg_color = Color(0.26, 0.6, 0.45, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_craft_off"]
+bg_color = Color(1, 1, 1, 0.06)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[node name="CraftingPanel" type="PanelContainer"]
+custom_minimum_size = Vector2(330, 0)
+theme_override_styles/panel = SubResource("StyleBoxFlat_panel")
+script = ExtResource("1_panel")
+recipes = Array[Resource]([ExtResource("2_stone_axe"), ExtResource("3_stone_pickaxe"), ExtResource("4_wooden_spear"), ExtResource("5_stone_knife"), ExtResource("6_torch"), ExtResource("7_bandage")])
+
+[node name="Margin" type="MarginContainer" parent="."]
+layout_mode = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 10
+
+[node name="VBox" type="VBoxContainer" parent="Margin"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Header" type="HBoxContainer" parent="Margin/VBox"]
+layout_mode = 2
+
+[node name="Title" type="Label" parent="Margin/VBox/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(1, 1, 1, 0.9)
+theme_override_font_sizes/font_size = 18
+text = "Craft"
+
+[node name="Sub" type="Label" parent="Margin/VBox/Header"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.35)
+theme_override_font_sizes/font_size = 11
+text = "recipes appear as you gather"
+
+[node name="Tabs" type="HBoxContainer" parent="Margin/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="TabAll" type="Button" parent="Margin/VBox/Tabs"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.6)
+theme_override_colors/font_pressed_color = Color(1, 1, 1, 0.95)
+theme_override_colors/font_hover_color = Color(1, 1, 1, 0.85)
+theme_override_font_sizes/font_size = 13
+theme_override_styles/normal = SubResource("StyleBoxEmpty_tab")
+theme_override_styles/hover = SubResource("StyleBoxFlat_tab_hover")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_tab_pressed")
+theme_override_styles/focus = SubResource("StyleBoxEmpty_tab")
+toggle_mode = true
+button_pressed = true
+text = "All"
+
+[node name="TabTools" type="Button" parent="Margin/VBox/Tabs"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.6)
+theme_override_colors/font_pressed_color = Color(1, 1, 1, 0.95)
+theme_override_colors/font_hover_color = Color(1, 1, 1, 0.85)
+theme_override_font_sizes/font_size = 13
+theme_override_styles/normal = SubResource("StyleBoxEmpty_tab")
+theme_override_styles/hover = SubResource("StyleBoxFlat_tab_hover")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_tab_pressed")
+theme_override_styles/focus = SubResource("StyleBoxEmpty_tab")
+toggle_mode = true
+text = "Tools"
+
+[node name="TabWeapons" type="Button" parent="Margin/VBox/Tabs"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.6)
+theme_override_colors/font_pressed_color = Color(1, 1, 1, 0.95)
+theme_override_colors/font_hover_color = Color(1, 1, 1, 0.85)
+theme_override_font_sizes/font_size = 13
+theme_override_styles/normal = SubResource("StyleBoxEmpty_tab")
+theme_override_styles/hover = SubResource("StyleBoxFlat_tab_hover")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_tab_pressed")
+theme_override_styles/focus = SubResource("StyleBoxEmpty_tab")
+toggle_mode = true
+text = "Weapons"
+
+[node name="TabSurvival" type="Button" parent="Margin/VBox/Tabs"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.6)
+theme_override_colors/font_pressed_color = Color(1, 1, 1, 0.95)
+theme_override_colors/font_hover_color = Color(1, 1, 1, 0.85)
+theme_override_font_sizes/font_size = 13
+theme_override_styles/normal = SubResource("StyleBoxEmpty_tab")
+theme_override_styles/hover = SubResource("StyleBoxFlat_tab_hover")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_tab_pressed")
+theme_override_styles/focus = SubResource("StyleBoxEmpty_tab")
+toggle_mode = true
+text = "Survival"
+
+[node name="Scroll" type="ScrollContainer" parent="Margin/VBox"]
+custom_minimum_size = Vector2(0, 118)
+layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="ListHolder" type="VBoxContainer" parent="Margin/VBox/Scroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="EmptyHint" type="Label" parent="Margin/VBox/Scroll/ListHolder"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.4)
+theme_override_font_sizes/font_size = 13
+text = "Gather materials to discover recipes."
+autowrap_mode = 3
+
+[node name="List" type="VBoxContainer" parent="Margin/VBox/Scroll/ListHolder"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 4
+
+[node name="Line" type="HSeparator" parent="Margin/VBox"]
+layout_mode = 2
+
+[node name="Preview" type="VBoxContainer" parent="Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Top" type="HBoxContainer" parent="Margin/VBox/Preview"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="PreviewTile" type="Panel" parent="Margin/VBox/Preview/Top"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(52, 52)
+layout_mode = 2
+size_flags_vertical = 0
+theme_override_styles/panel = SubResource("StyleBoxFlat_tile")
+
+[node name="PreviewLetter" type="Label" parent="Margin/VBox/Preview/Top/PreviewTile"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.9)
+theme_override_font_sizes/font_size = 22
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Texts" type="VBoxContainer" parent="Margin/VBox/Preview/Top"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2
+
+[node name="PreviewName" type="Label" parent="Margin/VBox/Preview/Top/Texts"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.95)
+theme_override_font_sizes/font_size = 17
+
+[node name="PreviewDesc" type="Label" parent="Margin/VBox/Preview/Top/Texts"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(200, 34)
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.5)
+theme_override_font_sizes/font_size = 12
+autowrap_mode = 3
+
+[node name="Requires" type="Label" parent="Margin/VBox/Preview"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 0.35)
+theme_override_font_sizes/font_size = 10
+text = "REQUIRES"
+
+[node name="Ingredients" type="VBoxContainer" parent="Margin/VBox/Preview"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 72)
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="CraftButton" type="Button" parent="Margin/VBox/Preview"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+theme_override_colors/font_disabled_color = Color(1, 1, 1, 0.4)
+theme_override_font_sizes/font_size = 15
+theme_override_styles/normal = SubResource("StyleBoxFlat_craft")
+theme_override_styles/hover = SubResource("StyleBoxFlat_craft_hover")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_craft")
+theme_override_styles/disabled = SubResource("StyleBoxFlat_craft_off")
+theme_override_styles/focus = SubResource("StyleBoxFlat_craft_off")
+text = "Craft"
+
+[node name="Toast" type="Label" parent="Margin/VBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 16)
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+horizontal_alignment = 1

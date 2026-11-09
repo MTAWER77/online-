@@ -1,0 +1,17 @@
+[gd_resource type="Resource" load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/inventory/recipe_data.gd" id="1_recipe"]
+[ext_resource type="Resource" path="res://resources/items/stone_pickaxe.tres" id="2_stone_pickaxe"]
+[ext_resource type="Resource" path="res://resources/items/stone.tres" id="3_stone"]
+[ext_resource type="Resource" path="res://resources/items/wood.tres" id="4_wood"]
+[ext_resource type="Resource" path="res://resources/items/fiber.tres" id="5_fiber"]
+
+[resource]
+script = ExtResource("1_recipe")
+display_name = "Stone Pickaxe"
+description = "Breaks rocks and ore."
+category = 0
+result = ExtResource("2_stone_pickaxe")
+result_amount = 1
+ingredient_items = Array[Resource]([ExtResource("3_stone"), ExtResource("4_wood"), ExtResource("5_fiber")])
+ingredient_amounts = PackedInt32Array(3, 2, 1)

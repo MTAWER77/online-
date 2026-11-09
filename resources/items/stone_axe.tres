@@ -1,0 +1,11 @@
+[gd_resource type="Resource" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/inventory/item_data.gd" id="1_data"]
+
+[resource]
+script = ExtResource("1_data")
+id = &"stone_axe"
+display_name = "Stone Axe"
+description = "Chops trees much faster than bare hands."
+color = Color(0.62, 0.68, 0.74, 1)
+max_stack = 1

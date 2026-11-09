@@ -1,6 +1,6 @@
 extends CanvasLayer
 ## scripts/inventory/inventory_ui.gd
-## واجهة المخزن: Tab أو I للفتح والقفل، Esc للقفل. شكلها كله في inventory_ui.tscn.
+## واجهة الشنطة (المخزن + التصنيع): Tab أو I للفتح والقفل، Esc للقفل. شكلها كله في inventory_ui.tscn.
 ## بتعرض شبكة 5x4 من مخزن اللاعب المحلي. سحب وإفلات بين الخانات (وبين الـ hotbar كمان)، واسم العنصر ووصفه تحت الشبكة.
 
 const SlotScene: PackedScene = preload("res://scenes/inventory/inventory_slot.tscn")
@@ -10,6 +10,7 @@ const TOGGLE_ACTION: StringName = &"inventory"
 @onready var _root: Control = %Root
 @onready var _grid: GridContainer = %Grid
 @onready var _info: Label = %Info
+@onready var _crafting: Node = %Crafting
 
 var _inventory: Node = null
 var _slots: Array = []
@@ -75,6 +76,7 @@ func _bind(inventory: Node) -> void:
 		_inventory.changed.disconnect(_refresh)
 	_inventory = inventory
 	_inventory.changed.connect(_refresh)
+	_crafting.bind(_inventory)
 
 	for slot in _slots:
 		slot.queue_free()
@@ -94,6 +96,7 @@ func _refresh() -> void:
 	for i in _slots.size():
 		_slots[i].set_item(_inventory.items[i], _inventory.counts[i])
 	_update_info()
+	_crafting.refresh()
 
 
 func _update_info() -> void:
