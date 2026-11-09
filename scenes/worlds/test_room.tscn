@@ -2,11 +2,11 @@
 
 [ext_resource type="Script" path="res://scripts/multiplayer/network_manager.gd" id="2_net"]
 [ext_resource type="Script" path="res://scripts/multiplayer/host_sync_test.gd" id="3_sync_test"]
-[ext_resource type="PackedScene" path="res://scenes/puzzles/symbol_item.tscn" id="4_symbol"]
 [ext_resource type="PackedScene" path="res://scenes/ui/mobile_controls.tscn" id="5_mobile"]
 [ext_resource type="PackedScene" path="res://scenes/puzzles/door.tscn" id="6_door"]
 [ext_resource type="PackedScene" path="res://scenes/puzzles/control_panel.tscn" id="7_panel"]
 [ext_resource type="PackedScene" path="res://scenes/puzzles/symbol_board.tscn" id="8_board"]
+[ext_resource type="Script" path="res://scripts/puzzles/sequence_puzzle.gd" id="9_puzzle"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_grey"]
 albedo_color = Color(0.6, 0.6, 0.6, 1)
@@ -69,19 +69,11 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 0, -2)
 [node name="SymbolBoard" parent="." instance=ExtResource("8_board")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -7, 0, -2)
 
-[node name="Items" type="Node3D" parent="."]
-
-[node name="Symbol1" parent="Items" instance=ExtResource("4_symbol")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.5, 0.45, -2.5)
-symbol_id = 0
-
-[node name="Symbol2" parent="Items" instance=ExtResource("4_symbol")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.45, -2.5)
-symbol_id = 1
-
-[node name="Symbol3" parent="Items" instance=ExtResource("4_symbol")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.5, 0.45, -2.5)
-symbol_id = 2
+[node name="SequencePuzzle" type="Node" parent="."]
+script = ExtResource("9_puzzle")
+board_path = NodePath("../SymbolBoard")
+door_path = NodePath("../Door")
+button_paths = Array[NodePath]([NodePath("../ControlPanel/Button1"), NodePath("../ControlPanel/Button2"), NodePath("../ControlPanel/Button3")])
 
 [node name="NetworkManager" type="Node" parent="."]
 script = ExtResource("2_net")

@@ -67,6 +67,17 @@ func _on_host_interact(client_id: int) -> void:
 		_broadcast(_apply_wrong)
 
 
+# بتتنادى من SequencePuzzle عند الـ host
+func host_open() -> void:
+	if not is_open:
+		_broadcast(_apply_open)
+
+
+func host_wrong() -> void:
+	if not is_open:
+		_broadcast(_apply_wrong)
+
+
 func _broadcast(action: Callable) -> void:
 	if GDSync.is_active():
 		GDSync.call_func_all(action) # بتشتغل عندي وعند التاني
