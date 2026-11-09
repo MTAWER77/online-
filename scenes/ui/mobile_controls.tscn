@@ -136,3 +136,29 @@ mouse_filter = 2
 text = "E"
 horizontal_alignment = 1
 vertical_alignment = 1
+
+[node name="InventoryButton" type="Panel" parent="Root"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -190.0
+offset_top = 40.0
+offset_right = -60.0
+offset_bottom = 170.0
+grow_horizontal = 0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_button")
+
+[node name="Label" type="Label" parent="Root/InventoryButton"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+text = "Bag"
+horizontal_alignment = 1
+vertical_alignment = 1

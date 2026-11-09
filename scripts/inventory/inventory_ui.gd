@@ -51,6 +51,9 @@ func open() -> void:
 	_refresh()
 	get_tree().call_group("players", "set_ui_open", true)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	# على الموبايل: تحكم اللمس بيوقف تحويل اللمس لماوس، فنشغّله وإحنا مفتوحين عشان الخانات تتلمس وتتسحب
+	if DisplayServer.is_touchscreen_available():
+		Input.emulate_mouse_from_touch = true
 	# ظهور ناعم
 	if _tween != null:
 		_tween.kill()
@@ -63,7 +66,9 @@ func close() -> void:
 	_root.visible = false
 	_hovered = -1
 	get_tree().call_group("players", "set_ui_open", false)
-	if not DisplayServer.is_touchscreen_available():
+	if DisplayServer.is_touchscreen_available():
+		Input.emulate_mouse_from_touch = false # نرجّع وضع تحكم الموبايل
+	else:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 

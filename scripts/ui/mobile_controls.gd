@@ -1,6 +1,6 @@
 extends CanvasLayer
 ## scripts/ui/mobile_controls.gd
-## تحكم الموبايل: جويستيك يسار (حركة)، سحب على اليمين (كاميرا)، زرار Jump وزرار E.
+## تحكم الموبايل: جويستيك يسار (حركة)، سحب على اليمين (كاميرا)، زرار Jump وزرار E وزرار Bag (المخزن).
 ## الشكل كله في mobile_controls.tscn (تعدّله من المحرر). السكريبت بس بيترجم اللمس لـ Input actions.
 ## بيتعامل مع اللمس مباشرة، فتقدر تحرك الجويستيك وتضغط الأزرار في نفس الوقت (multi-touch).
 
@@ -14,11 +14,13 @@ extends CanvasLayer
 @onready var _knob: Control = %Knob
 @onready var _jump_button: Control = %JumpButton
 @onready var _interact_button: Control = %InteractButton
+@onready var _inventory_button: Control = %InventoryButton
 
 var _joystick_touch: int = -1
 var _look_touch: int = -1
 var _jump_touch: int = -1
 var _interact_touch: int = -1
+var _inventory_touch: int = -1
 var _joystick_vector: Vector2 = Vector2.ZERO
 var _active: bool = false
 
@@ -69,6 +71,9 @@ func _touch_down(index: int, pos: Vector2) -> void:
 	elif _interact_touch == -1 and _interact_button.get_global_rect().has_point(pos):
 		_interact_touch = index
 		_send_action(&"interact", true)
+	elif _inventory_touch == -1 and _inventory_button.get_global_rect().has_point(pos):
+		_inventory_touch = index
+		_send_action(&"inventory", true) # بيفتح ويقفل المخزن (InventoryUI)
 	elif _look_touch == -1 and pos.x > get_viewport().get_visible_rect().size.x * look_area_start:
 		_look_touch = index
 
@@ -83,6 +88,9 @@ func _touch_up(index: int) -> void:
 	elif index == _interact_touch:
 		_interact_touch = -1
 		_send_action(&"interact", false)
+	elif index == _inventory_touch:
+		_inventory_touch = -1
+		_send_action(&"inventory", false)
 	elif index == _look_touch:
 		_look_touch = -1
 
