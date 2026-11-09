@@ -135,7 +135,7 @@ func check_craft(recipe: Resource) -> int:
 		if count_of(recipe.ingredient_items[k]) < recipe.ingredient_amounts[k]:
 			return CraftResult.MISSING
 	var saved_items: Array = items.duplicate()
-	var saved_counts: Array[int] = counts.duplicate()
+	var saved_counts: Array = counts.duplicate()
 	_consume(recipe)
 	var fits: bool = can_add(recipe.result, recipe.result_amount)
 	for i in slot_count:
