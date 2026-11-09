@@ -1,10 +1,11 @@
-[gd_scene load_steps=12 format=3]
+[gd_scene load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://scripts/multiplayer/network_manager.gd" id="2_net"]
 [ext_resource type="Script" path="res://scripts/multiplayer/host_sync_test.gd" id="3_sync_test"]
 [ext_resource type="PackedScene" path="res://scenes/puzzles/symbol_item.tscn" id="4_symbol"]
 [ext_resource type="PackedScene" path="res://scenes/ui/mobile_controls.tscn" id="5_mobile"]
 [ext_resource type="PackedScene" path="res://scenes/puzzles/door.tscn" id="6_door"]
+[ext_resource type="PackedScene" path="res://scenes/puzzles/control_panel.tscn" id="7_panel"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_grey"]
 albedo_color = Color(0.6, 0.6, 0.6, 1)
@@ -60,6 +61,9 @@ mesh = SubResource("BoxMesh_sync")
 [node name="Door" parent="." instance=ExtResource("6_door")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -8)
 required_symbol_id = 1
+
+[node name="ControlPanel" parent="." instance=ExtResource("7_panel")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 0, -2)
 
 [node name="Items" type="Node3D" parent="."]
 
