@@ -52,6 +52,11 @@ unique_name_in_owner = true
 layout_mode = 2
 text = "Join"
 
+[node name="OfflineButton" type="Button" parent="Center/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Play Offline"
+
 [node name="JoinScreen" type="VBoxContainer" parent="Center/Content"]
 unique_name_in_owner = true
 visible = false

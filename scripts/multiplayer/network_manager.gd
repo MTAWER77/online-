@@ -9,6 +9,7 @@ extends Node
 signal lobby_entered(is_host: bool)
 
 # مسارات الـ nodes لازم تكون ثابتة ومتطابقة عند الاتنين
+const SessionMode = preload("res://scripts/multiplayer/session_mode.gd")
 const PLAYER_SCENE: PackedScene = preload("res://scenes/players/player.tscn")
 const PLAYERS_ROOT_NAME: String = "SpawnedPlayers"
 const HOST_PLAYER_NAME: String = "HostPlayer"
@@ -21,6 +22,7 @@ const BROADCAST_WHEN_HOST: int = 0 # PropertySynchronizer.BROADCAST_MODE.WHEN_HO
 const BROADCAST_WHEN_CLIENT: int = 1 # PropertySynchronizer.BROADCAST_MODE.WHEN_CLIENT
 
 @export var lobby_name: String = "coop-test-room" # بس لما نشغّل المشهد لوحده بـ F6
+@export var force_offline: bool = false # لاعب واحد من غير نت (للتجربة بـ F6 كمان)
 @export var use_local_multiplayer: bool = false # للتجربة من غير مفاتيح (GDSync local)
 @export var host_spawn: Vector3 = Vector3(-1.5, 0.1, 0.0)
 @export var client_spawn: Vector3 = Vector3(1.5, 0.1, 0.0)
@@ -47,6 +49,11 @@ func _ready() -> void:
 
 
 func _start() -> void:
+	# وضع أوفلاين: لاعب واحد، من غير GD-Sync خالص
+	if SessionMode.offline or force_offline:
+		_spawn_offline()
+		return
+
 	# جاي من القائمة الرئيسية وإحنا أصلًا جوه لوبي: نعمل اللاعبين على طول
 	if GDSync.is_active() and GDSync.lobby_get_name() != "":
 		_spawn_players()
@@ -117,12 +124,7 @@ func _spawn_players() -> void:
 		return
 	_spawned = true
 
-	var scene_root: Node = get_parent()
-	_players_root = scene_root.get_node_or_null(PLAYERS_ROOT_NAME) as Node3D
-	if _players_root == null:
-		_players_root = Node3D.new()
-		_players_root.name = PLAYERS_ROOT_NAME
-		scene_root.add_child(_players_root)
+	_players_root = _ensure_players_root()
 
 	# الاتنين بيعملوا نفس اللاعبين بنفس الأسماء والأماكن
 	_spawn_one(HOST_PLAYER_NAME, ROLE_HOST, BROADCAST_WHEN_HOST, host_spawn)
@@ -130,6 +132,30 @@ func _spawn_players() -> void:
 
 	_refresh_status()
 	lobby_entered.emit(GDSync.is_host())
+
+
+func _spawn_offline() -> void:
+	if _spawned:
+		return
+	_spawned = true
+	_players_root = _ensure_players_root()
+	var player := PLAYER_SCENE.instantiate() as Node3D
+	player.name = "OfflinePlayer"
+	# من غير دور (role) فاللاعب بيتحكم فيه محليًا، ومن غير مزامنة
+	player.get_node("PropertySynchronizer").free()
+	player.position = host_spawn
+	_players_root.add_child(player)
+	_set_status("OFFLINE | single player")
+
+
+func _ensure_players_root() -> Node3D:
+	var scene_root: Node = get_parent()
+	var root := scene_root.get_node_or_null(PLAYERS_ROOT_NAME) as Node3D
+	if root == null:
+		root = Node3D.new()
+		root.name = PLAYERS_ROOT_NAME
+		scene_root.add_child(root)
+	return root
 
 
 func _spawn_one(node_name: String, role: int, broadcast_mode: int, spawn_position: Vector3) -> void:

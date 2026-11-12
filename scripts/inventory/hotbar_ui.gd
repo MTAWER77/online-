@@ -65,6 +65,12 @@ func _on_slot_dropped(from_index: int, to_index: int) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if _inventory == null or _inventory.get_parent().ui_open:
 		return
+	if event.is_action_pressed("hotbar_prev"): # أزرار الموبايل
+		_inventory.select_hotbar(_inventory.selected_hotbar - 1)
+		return
+	if event.is_action_pressed("hotbar_next"):
+		_inventory.select_hotbar(_inventory.selected_hotbar + 1)
+		return
 	for i in _inventory.hotbar_slots:
 		if event.is_action_pressed("hotbar_%d" % (i + 1)):
 			_inventory.select_hotbar(i)
@@ -78,6 +84,10 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _ensure_actions() -> void:
+	# أزرار بدون مفاتيح، بتتبعت من تحكم الموبايل
+	for action in [&"hotbar_prev", &"hotbar_next"]:
+		if not InputMap.has_action(action):
+			InputMap.add_action(action)
 	var keys: Array[Key] = [KEY_1, KEY_2, KEY_3, KEY_4, KEY_5]
 	for i in keys.size():
 		var action := StringName("hotbar_%d" % (i + 1))

@@ -1,6 +1,6 @@
 extends CanvasLayer
 ## scripts/ui/mobile_controls.gd
-## تحكم الموبايل: جويستيك يسار (حركة)، سحب على اليمين (كاميرا)، زرار Jump وزرار E وزرار Bag (المخزن).
+## تحكم الموبايل: جويستيك يسار (حركة)، سحب على اليمين (كاميرا)، زرار Jump وزرار E وزرار Bag (المخزن)، وأزرار < > لتغيير خانة الـ hotbar.
 ## الشكل كله في mobile_controls.tscn (تعدّله من المحرر). السكريبت بس بيترجم اللمس لـ Input actions.
 ## بيتعامل مع اللمس مباشرة، فتقدر تحرك الجويستيك وتضغط الأزرار في نفس الوقت (multi-touch).
 
@@ -15,12 +15,15 @@ extends CanvasLayer
 @onready var _jump_button: Control = %JumpButton
 @onready var _interact_button: Control = %InteractButton
 @onready var _inventory_button: Control = %InventoryButton
+@onready var _hotbar_prev_button: Control = %HotbarPrev
+@onready var _hotbar_next_button: Control = %HotbarNext
 
 var _joystick_touch: int = -1
 var _look_touch: int = -1
 var _jump_touch: int = -1
 var _interact_touch: int = -1
 var _inventory_touch: int = -1
+var _hotbar_touches: Dictionary = {} # رقم اللمسة -> اسم الأكشن
 var _joystick_vector: Vector2 = Vector2.ZERO
 var _active: bool = false
 
@@ -74,6 +77,10 @@ func _touch_down(index: int, pos: Vector2) -> void:
 	elif _inventory_touch == -1 and _inventory_button.get_global_rect().has_point(pos):
 		_inventory_touch = index
 		_send_action(&"inventory", true) # بيفتح ويقفل المخزن (InventoryUI)
+	elif _hotbar_action_at(pos) != &"":
+		var hotbar_action: StringName = _hotbar_action_at(pos)
+		_hotbar_touches[index] = hotbar_action
+		_send_action(hotbar_action, true) # تغيير خانة الـ hotbar
 	elif _look_touch == -1 and pos.x > get_viewport().get_visible_rect().size.x * look_area_start:
 		_look_touch = index
 
@@ -91,8 +98,19 @@ func _touch_up(index: int) -> void:
 	elif index == _inventory_touch:
 		_inventory_touch = -1
 		_send_action(&"inventory", false)
+	elif _hotbar_touches.has(index):
+		_send_action(_hotbar_touches[index], false)
+		_hotbar_touches.erase(index)
 	elif index == _look_touch:
 		_look_touch = -1
+
+
+func _hotbar_action_at(pos: Vector2) -> StringName:
+	if _hotbar_prev_button.get_global_rect().has_point(pos):
+		return &"hotbar_prev"
+	if _hotbar_next_button.get_global_rect().has_point(pos):
+		return &"hotbar_next"
+	return &""
 
 
 # ---- الجويستيك ----

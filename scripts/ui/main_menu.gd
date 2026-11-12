@@ -6,6 +6,8 @@ extends Control
 
 @export_file("*.tscn") var game_scene: String = "res://scenes/worlds/test_room.tscn"
 
+const SessionMode = preload("res://scripts/multiplayer/session_mode.gd")
+
 const CODE_CHARS: String = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" # من غير حروف بتتلخبط (O/0, I/1)
 const CODE_LENGTH: int = 5
 const MAX_PLAYERS: int = 2
@@ -14,6 +16,7 @@ const READY_KEY: String = "ready"
 @onready var _status_label: Label = %StatusLabel
 
 @onready var _menu_screen: VBoxContainer = %MenuScreen
+@onready var _offline_button: Button = %OfflineButton
 @onready var _host_button: Button = %HostButton
 @onready var _join_button: Button = %JoinButton
 
@@ -38,6 +41,8 @@ var _busy_timer: SceneTreeTimer
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 
+	SessionMode.offline = false
+	_offline_button.pressed.connect(_on_offline_pressed)
 	_host_button.pressed.connect(_on_host_pressed)
 	_join_button.pressed.connect(_on_join_screen_pressed)
 	_confirm_join_button.pressed.connect(_on_confirm_join_pressed)
@@ -98,6 +103,16 @@ func _on_connection_failed(error: int) -> void:
 			_set_status("الاتصال فشل: تأكد من النت")
 		_:
 			_set_status("الاتصال فشل (%d)" % error)
+
+
+# ------------------------------------------------------------------ أوفلاين
+
+# لاعب واحد من غير GD-Sync: نقفل الاتصال ونفتح اللعبة على طول
+func _on_offline_pressed() -> void:
+	if GDSync.is_active():
+		GDSync.stop_multiplayer()
+	SessionMode.offline = true
+	get_tree().change_scene_to_file(game_scene)
 
 
 # ------------------------------------------------------------------ Host
@@ -269,6 +284,8 @@ func _refresh_lobby() -> void:
 # ------------------------------------------------------------------ عرض الشاشات
 
 func _show_screen(screen: String) -> void:
+	# اللعب أوفلاين متاح من القائمة أو أثناء الاتصال (حتى لو النت واقع)
+	_offline_button.visible = (screen == "menu" or screen == "connecting")
 	_menu_screen.visible = (screen == "menu")
 	_join_screen.visible = (screen == "join")
 	_room_screen.visible = (screen == "room")
