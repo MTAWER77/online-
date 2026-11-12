@@ -88,7 +88,7 @@ func _ready() -> void:
 
 
 func _ensure_input_actions() -> void:
-	# الأكشنز دي بتتعمل أصلًا في player.gd، بس المشهد ده مفيهوش لاعب فنتأكد هنا
+	# بنسجّل الأكشنز هنا لأن مفيش مكان تاني بيعملها
 	var keys: Dictionary = {
 		&"move_forward": KEY_W, &"move_back": KEY_S,
 		&"move_left": KEY_A, &"move_right": KEY_D, &"jump": KEY_SPACE,
@@ -99,6 +99,18 @@ func _ensure_input_actions() -> void:
 			var ev := InputEventKey.new()
 			ev.physical_keycode = keys[action] as Key
 			InputMap.action_add_event(action, ev)
+
+
+# Esc (أو زرار Menu في الموبايل) يرجّعنا للقائمة
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed(&"ui_cancel"):
+		_leave_to_menu()
+
+
+func _leave_to_menu() -> void:
+	if _online:
+		GDSync.lobby_leave()
+	get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn")
 
 
 # ---------------------------------------------------------------- الفيزيكس

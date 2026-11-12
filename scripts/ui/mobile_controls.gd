@@ -1,30 +1,20 @@
 extends CanvasLayer
 ## scripts/ui/mobile_controls.gd
-## تحكم الموبايل: جويستيك يسار (حركة)، سحب على اليمين (كاميرا)، زرار Jump وزرار E وزرار Bag (المخزن)، وأزرار < > لتغيير خانة الـ hotbar.
-## الشكل كله في mobile_controls.tscn (تعدّله من المحرر). السكريبت بس بيترجم اللمس لـ Input actions.
-## بيتعامل مع اللمس مباشرة، فتقدر تحرك الجويستيك وتضغط الأزرار في نفس الوقت (multi-touch).
+## تحكم الموبايل: جويستيك يسار (دركسيون)، وأزرار Gas و Brake و Jump، وزرار Menu للخروج.
+## كل لاعب بيستخدم بس الأزرار بتاعة دوره: الـ host دركسيون + Brake، والـ client Gas + Jump (أوفلاين الكل).
+## الشكل كله في mobile_controls.tscn. السكريبت بس بيترجم اللمس لـ Input actions (multi-touch).
 
 # بيظهر على أجهزة اللمس بس. شغّله true لو عايز تشوفه على الكمبيوتر وتجرّب بالماوس.
 @export var show_on_desktop: bool = false
-@export var look_sensitivity: float = 1.0
 @export var deadzone: float = 0.15
-@export_range(0.0, 1.0) var look_area_start: float = 0.35 # السحب بيشتغل من الجزء ده من عرض الشاشة لليمين
 
 @onready var _joystick: Control = %Joystick
 @onready var _knob: Control = %Knob
-@onready var _jump_button: Control = %JumpButton
-@onready var _interact_button: Control = %InteractButton
-@onready var _inventory_button: Control = %InventoryButton
-@onready var _hotbar_prev_button: Control = %HotbarPrev
-@onready var _hotbar_next_button: Control = %HotbarNext
 
+var _buttons: Dictionary = {} # Control -> اسم الأكشن
+var _button_touches: Dictionary = {} # رقم اللمسة -> اسم الأكشن
 var _joystick_touch: int = -1
-var _look_touch: int = -1
-var _jump_touch: int = -1
-var _interact_touch: int = -1
-var _inventory_touch: int = -1
-var _hotbar_touches: Dictionary = {} # رقم اللمسة -> اسم الأكشن
-var _joystick_vector: Vector2 = Vector2.ZERO
+var _steer: float = 0.0
 var _active: bool = false
 
 
@@ -34,7 +24,13 @@ func _ready() -> void:
 	set_process_input(_active)
 	if not _active:
 		return
-	# من غير ما اللمس يتحول لحركة ماوس (كان هيحرّك الكاميرا مرتين)
+	_buttons = {
+		%GasButton: &"move_forward",
+		%BrakeButton: &"move_back",
+		%JumpButton: &"jump",
+		%MenuButton: &"ui_cancel", # الدراجة بتفهمه كخروج للقائمة
+	}
+	# من غير ما اللمس يتحول لحركة ماوس
 	Input.emulate_mouse_from_touch = false
 	Input.emulate_touch_from_mouse = show_on_desktop
 	_reset_joystick()
@@ -59,87 +55,52 @@ func _input(event: InputEvent) -> void:
 		var drag := event as InputEventScreenDrag
 		if drag.index == _joystick_touch:
 			_update_joystick(drag.position)
-		elif drag.index == _look_touch:
-			# أي لاعب محلي ياخد الحركة (apply_look بتتجاهل اللاعب البعيد)
-			get_tree().call_group("players", "apply_look", drag.relative * look_sensitivity)
 
 
 func _touch_down(index: int, pos: Vector2) -> void:
 	if _joystick_touch == -1 and _joystick.get_global_rect().has_point(pos):
 		_joystick_touch = index
 		_update_joystick(pos)
-	elif _jump_touch == -1 and _jump_button.get_global_rect().has_point(pos):
-		_jump_touch = index
-		_send_action(&"jump", true)
-	elif _interact_touch == -1 and _interact_button.get_global_rect().has_point(pos):
-		_interact_touch = index
-		_send_action(&"interact", true)
-	elif _inventory_touch == -1 and _inventory_button.get_global_rect().has_point(pos):
-		_inventory_touch = index
-		_send_action(&"inventory", true) # بيفتح ويقفل المخزن (InventoryUI)
-	elif _hotbar_action_at(pos) != &"":
-		var hotbar_action: StringName = _hotbar_action_at(pos)
-		_hotbar_touches[index] = hotbar_action
-		_send_action(hotbar_action, true) # تغيير خانة الـ hotbar
-	elif _look_touch == -1 and pos.x > get_viewport().get_visible_rect().size.x * look_area_start:
-		_look_touch = index
+		return
+	for button: Control in _buttons:
+		if button.get_global_rect().has_point(pos):
+			var action: StringName = _buttons[button]
+			_button_touches[index] = action
+			_send_action(action, true)
+			return
 
 
 func _touch_up(index: int) -> void:
 	if index == _joystick_touch:
 		_joystick_touch = -1
 		_reset_joystick()
-	elif index == _jump_touch:
-		_jump_touch = -1
-		_send_action(&"jump", false)
-	elif index == _interact_touch:
-		_interact_touch = -1
-		_send_action(&"interact", false)
-	elif index == _inventory_touch:
-		_inventory_touch = -1
-		_send_action(&"inventory", false)
-	elif _hotbar_touches.has(index):
-		_send_action(_hotbar_touches[index], false)
-		_hotbar_touches.erase(index)
-	elif index == _look_touch:
-		_look_touch = -1
+	elif _button_touches.has(index):
+		_send_action(_button_touches[index], false)
+		_button_touches.erase(index)
 
 
-func _hotbar_action_at(pos: Vector2) -> StringName:
-	if _hotbar_prev_button.get_global_rect().has_point(pos):
-		return &"hotbar_prev"
-	if _hotbar_next_button.get_global_rect().has_point(pos):
-		return &"hotbar_next"
-	return &""
-
-
-# ---- الجويستيك ----
+# ---- الجويستيك (يمين / شمال بس = دركسيون) ----
 func _update_joystick(pos: Vector2) -> void:
 	var rect: Rect2 = _joystick.get_global_rect()
 	var radius: float = rect.size.x * 0.5
 	var offset: Vector2 = (pos - rect.get_center()).limit_length(radius)
-
 	_knob.position = _joystick.size * 0.5 + offset - _knob.size * 0.5
-
-	var vector: Vector2 = offset / radius
-	_joystick_vector = vector if vector.length() > deadzone else Vector2.ZERO
-	_apply_movement()
+	var x: float = offset.x / radius
+	_steer = x if absf(x) > deadzone else 0.0
+	_apply_steer()
 
 
 func _reset_joystick() -> void:
-	_joystick_vector = Vector2.ZERO
+	_steer = 0.0
 	_knob.position = _joystick.size * 0.5 - _knob.size * 0.5
-	_apply_movement()
+	_apply_steer()
 
 
-func _apply_movement() -> void:
-	_set_strength(&"move_right", maxf(_joystick_vector.x, 0.0))
-	_set_strength(&"move_left", maxf(-_joystick_vector.x, 0.0))
-	_set_strength(&"move_back", maxf(_joystick_vector.y, 0.0))
-	_set_strength(&"move_forward", maxf(-_joystick_vector.y, 0.0))
+func _apply_steer() -> void:
+	_set_strength(&"move_right", maxf(_steer, 0.0))
+	_set_strength(&"move_left", maxf(-_steer, 0.0))
 
 
-# ---- ترجمة اللمس لـ Input actions ----
 func _set_strength(action: StringName, strength: float) -> void:
 	if not InputMap.has_action(action):
 		return
@@ -149,7 +110,6 @@ func _set_strength(action: StringName, strength: float) -> void:
 		Input.action_release(action)
 
 
-# بنبعت event حقيقي عشان _unhandled_input (زي زرار E) يستقبله
 func _send_action(action: StringName, pressed: bool) -> void:
 	if not InputMap.has_action(action):
 		return
@@ -160,7 +120,8 @@ func _send_action(action: StringName, pressed: bool) -> void:
 
 
 func _release_all() -> void:
-	_joystick_vector = Vector2.ZERO
-	_apply_movement()
-	_send_action(&"jump", false)
-	_send_action(&"interact", false)
+	_steer = 0.0
+	_apply_steer()
+	for action: StringName in _button_touches.values():
+		_send_action(action, false)
+	_button_touches.clear()

@@ -4,8 +4,7 @@ extends Control
 ## Host: يعمل روم وكود. Join: تكتب الكود وتدخل الروم.
 ## التاني يدوس Ready، والـ host يدوس Start فيدخلوا اللعبة.
 
-@export_file("*.tscn") var game_scene: String = "res://scenes/worlds/test_room.tscn"
-@export_file("*.tscn") var unicycle_scene: String = "res://scenes/worlds/unicycle_test.tscn"
+@export_file("*.tscn") var game_scene: String = "res://scenes/worlds/unicycle_test.tscn"
 
 const SessionMode = preload("res://scripts/multiplayer/session_mode.gd")
 
@@ -18,7 +17,6 @@ const READY_KEY: String = "ready"
 
 @onready var _menu_screen: VBoxContainer = %MenuScreen
 @onready var _offline_button: Button = %OfflineButton
-@onready var _unicycle_check: CheckButton = %UnicycleCheck
 @onready var _host_button: Button = %HostButton
 @onready var _join_button: Button = %JoinButton
 
@@ -110,16 +108,11 @@ func _on_connection_failed(error: int) -> void:
 # ------------------------------------------------------------------ أوفلاين
 
 # لاعب واحد من غير GD-Sync: نقفل الاتصال ونفتح اللعبة على طول
-# وضع الدراجة بيتحدد من الـ host (القائمة) واللعبة بتتحمّل عند الاتنين
-func _selected_scene() -> String:
-	return unicycle_scene if _unicycle_check.button_pressed else game_scene
-
-
 func _on_offline_pressed() -> void:
 	if GDSync.is_active():
 		GDSync.stop_multiplayer()
 	SessionMode.offline = true
-	get_tree().change_scene_to_file(_selected_scene())
+	get_tree().change_scene_to_file(game_scene)
 
 
 # ------------------------------------------------------------------ Host
@@ -220,7 +213,7 @@ func _on_start_pressed() -> void:
 	_start_button.disabled = true
 	_set_status("بنحمّل اللعبة...")
 	GDSync.lobby_close() # محدش يدخل بعد البداية
-	GDSync.change_scene(_selected_scene())
+	GDSync.change_scene(game_scene)
 
 
 func _on_change_scene_failed(_path: String) -> void:
@@ -293,7 +286,6 @@ func _refresh_lobby() -> void:
 func _show_screen(screen: String) -> void:
 	# اللعب أوفلاين متاح من القائمة أو أثناء الاتصال (حتى لو النت واقع)
 	_offline_button.visible = (screen == "menu" or screen == "connecting")
-	_unicycle_check.visible = _offline_button.visible
 	_menu_screen.visible = (screen == "menu")
 	_join_screen.visible = (screen == "join")
 	_room_screen.visible = (screen == "room")
