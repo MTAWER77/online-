@@ -9,8 +9,11 @@ extends RigidBody3D
 ## لكن الدوران والميلان والتشقلب فيزيكس حقيقي: بنزين = بيرجّعك لورا شوية، فرامل = بتنبطح لقدام،
 ## لف بسرعة عالية = بتميل جامد. لو اتقلبت (أكتر من fall_tilt) وانت على الأرض بتفضل مرمي
 ## recover_time ثانية وبعدين بترجع واقفة. تصادم بسرعة عالية = تشقلب.
-## الـ host هو اللي بيحرّك الدراجة. الـ client بيبعت البنزين والقفز بس (والـ host بيتحقق منهم)،
-## وجسمها عنده frozen والمكان والدوران بيجوله بـ PropertySynchronizer.
+## الـ host هو اللي بيحرّك الدراجة (authoritative). الـ client بيبعت المدخلات بس (البنزين والقفز)
+## والـ host بيتحقق منها (نوع/مدى/تردد). عمره ما بيبعت مكان أو حالة.
+## الـ host بيعلن حالته (net_position / net_rotation) عن طريق PropertySynchronizer بتردد منخفض،
+## والـ client بيحتفظ بيها كهدف وبيقرّب منه بـ lerp في _physics_process (من غير ما يقفز).
+## الـ global_transform نفسه مش بيتزامن. و Physics Interpolation شغال في المشروع.
 
 const SessionMode = preload("res://scripts/multiplayer/session_mode.gd")
 const DebugLog = preload("res://scripts/systems/debug_log.gd")
@@ -47,6 +50,12 @@ const WHEEL_RADIUS: float = 0.45
 @export_group("Network")
 @export var input_timeout: float = 0.35 # لو البنزين ماوصلش أحدث من كده نصفّره (عشان ما يعلقش)
 @export var heartbeat: float = 0.1 # الـ client بيكرر البنزين كل كام ثانية طول ما هو ضاغط
+@export var min_send_interval: float = 0.05 # أقل فاصل بين إرسالتين بنزين من الـ client (20/ث كحد أقصى)
+@export var net_smooth_speed: float = 18.0 # سرعة اقتراب الـ client من هدف الـ host (أعلى = أحدّ)
+@export var net_snap_distance: float = 4.0 # لو الفرق أكبر من كده (respawn / أول اتصال) بننقل فورًا
+@export_subgroup("Server rate limit")
+@export var min_gas_interval: float = 0.02 # الـ host يتجاهل أي بنزين أسرع من كده (الـ client الطبيعي 0.05)
+@export var min_jump_interval: float = 0.1 # الـ host يتجاهل أي قفزة أسرع من كده
 
 @export_group("Visual")
 @export var model_yaw_degrees: float = 0.0 # لو الدراجة ماشية بضهرها غيّرها لـ 180
@@ -71,13 +80,22 @@ var _is_fallen: bool = false
 var _heading: Vector3 = Vector3.FORWARD
 var _spawn_transform: Transform3D
 
+# حالة الـ host اللي بتتزامن (PropertySynchronizer). الـ client بيعاملها كهدف بس.
+# (دول بدل global_position / quaternion اللي كانوا بيتزامنوا قبل كده)
+var net_position: Vector3 = Vector3.ZERO
+var net_rotation: Quaternion = Quaternion.IDENTITY
+
 # مدخلات الـ client عند الـ host
 var _remote_gas: float = 0.0
 var _remote_gas_time: float = -100.0
+var _last_gas_recv_ms: int = -1000000
+var _last_jump_recv_ms: int = -1000000
+var _dropped_rpc: int = 0
 
 # إرسال الـ client
 var _last_sent_gas: float = -1.0
 var _heartbeat_timer: float = 0.0
+var _send_cooldown: float = 0.0
 var _zero_repeat_time: float = 0.0
 var _gas_timed_out: bool = false
 
@@ -97,22 +115,29 @@ func _ready() -> void:
 		_role = ControlRole.ALL
 	else:
 		_role = ControlRole.STEER_BRAKE if GDSync.is_host() else ControlRole.GAS_JUMP
-		GDSync.expose_func(_receive_gas)
-		GDSync.expose_func(_receive_jump)
+		# المدخلات بس، والمنادي لازم يكون client (الـ host مالوش يبعت لنفسه)
+		GDSync.expose_func(_receive_gas, ENUMS.EXPOSE_PERMISSION.CLIENT)
+		GDSync.expose_func(_receive_jump, ENUMS.EXPOSE_PERMISSION.CLIENT)
 
 	if not _simulates:
-		# عند الـ client: الفيزيكس مش بتشتغل، والمكان بيجي من الـ host
-		freeze_mode = RigidBody3D.FREEZE_MODE_KINEMATIC
-		freeze = true
+		# عند الـ client: الجسم مش frozen. مفيش قوى بتحرّكه (الجاذبية متعطلة والسرعات بتتصفّر)،
+		# والمكان بيتحرك بـ lerp ناحية هدف الـ host في _physics_process.
+		freeze = false
+		gravity_scale = 0.0
 
 	_ensure_input_actions()
 	_log_setup()
 	_spawn_transform = global_transform
 	_last_pos = global_position
+	# الهدف المبدئي عند الـ client = مكان الإنشاء (لحد ما أول حزمة توصل)
+	net_position = global_position
+	net_rotation = global_transform.basis.get_rotation_quaternion()
 	_cam_yaw = global_rotation.y
 	_model.rotation_degrees.y = model_yaw_degrees
 
 	_camera_rig.top_level = true
+	# الكاميرا بتتحرك في _process وبتاخد الموقع من get_global_transform_interpolated()، فمتتعملش interpolation تاني
+	_camera_rig.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	_camera_rig.global_position = global_position + Vector3.UP
 	_camera_rig.rotation = Vector3(0.0, _cam_yaw, 0.0)
 	_camera.make_current()
@@ -158,9 +183,12 @@ func _leave_to_menu() -> void:
 
 # ---------------------------------------------------------------- الفيزيكس
 func _physics_process(delta: float) -> void:
+	_update_motion_visuals(delta)
 	if not _simulates:
+		_follow_server_state(delta)
 		_send_client_input(delta)
 		return
+	_publish_state()
 
 	var steer: float = 0.0
 	var brake: bool = false
@@ -313,25 +341,28 @@ func _reset_to(target: Transform3D) -> void:
 	_fallen_time = 0.0
 	_is_fallen = false
 	_last_pos = global_position
-	var sync: Node = get_node_or_null("PropertySynchronizer")
-	if sync != null:
-		sync.call("pause_interpolation", 0.3) # عشان الـ client ما يشوفهاش بتنزلق
+	reset_physics_interpolation() # الشاشة ما تعملش interpolation من المكان القديم
+	_publish_state() # الهدف الجديد يتبعت فورًا؛ والـ client بينقل فورًا لو الفرق كبير
 
 
 # ---------------------------------------------------------------- الـ client
+# العميل بيبعت المدخلات بس (بنزين / قفز). مفيش أي إرسال لمكان أو سرعة أو حالة الدراجة.
 func _send_client_input(delta: float) -> void:
 	if _role != ControlRole.GAS_JUMP:
 		return
 	var gas: float = snappedf(Input.get_action_strength(&"move_forward"), 0.1)
 	_heartbeat_timer += delta
+	_send_cooldown = maxf(_send_cooldown - delta, 0.0)
 	var changed: bool = not is_equal_approx(gas, _last_sent_gas)
 	if changed:
 		_zero_repeat_time = 0.4 # لو اتسابت القيمة صفر، نكررها شوية عشان لو ضاعت حزمة
 	_zero_repeat_time = maxf(_zero_repeat_time - delta, 0.0)
-	# unreliable: لو حزمة ضاعت ما بتتعادش (بتعمل تأخير)، والتكرار بيعوّضها
-	if changed or ((gas > 0.0 or _zero_repeat_time > 0.0) and _heartbeat_timer >= heartbeat):
+	# unreliable: لو حزمة ضاعت ما بتتعادش (بتعمل تأخير)، والتكرار بيعوّضها.
+	# _send_cooldown بيحدّ التردد (لو التغيير اتأجل، بيتبعت أول ما الفاصل يخلص لأن _last_sent_gas ما اتغيرش)
+	if _send_cooldown <= 0.0 and (changed or ((gas > 0.0 or _zero_repeat_time > 0.0) and _heartbeat_timer >= heartbeat)):
 		_last_sent_gas = gas
 		_heartbeat_timer = 0.0
+		_send_cooldown = min_send_interval
 		if changed:
 			DebugLog.say("NET", "gas بعت %.1f" % gas)
 		GDSync.call_func_on_unreliable(GDSync.get_host(), _receive_gas, gas)
@@ -339,21 +370,89 @@ func _send_client_input(delta: float) -> void:
 		GDSync.call_func_on(GDSync.get_host(), _receive_jump) # reliable: القفزة مهمة
 
 
-# بتتنفذ عند الـ host بس. الـ host بيتحقق من القيم قبل ما يستخدمها.
+# بتتنفذ عند الـ host بس. بيتحقق من النوع والمدى والتردد قبل ما يستخدم القيمة.
 func _receive_gas(value: float) -> void:
 	if not GDSync.is_host():
 		return
-	if not is_equal_approx(value, _remote_gas):
-		DebugLog.say("NET", "gas استلمت %.1f" % value)
-	_remote_gas = clampf(value, 0.0, 1.0)
+	if not _accept_rpc_rate(true):
+		return
+	if not is_finite(value): # NaN / inf
+		return
+	var clamped: float = clampf(value, 0.0, 1.0)
+	if not is_equal_approx(clamped, _remote_gas):
+		DebugLog.say("NET", "gas استلمت %.1f" % clamped)
+	_remote_gas = clamped
 	_remote_gas_time = Time.get_ticks_msec() / 1000.0
 
 
 func _receive_jump() -> void:
 	if not GDSync.is_host():
 		return
+	if not _accept_rpc_rate(false):
+		return
 	DebugLog.say("NET", "jump استلمت من الـ client")
 	_jump_buffer = 0.25 # أطول شوية من القفز المحلي، عشان القفزة اللي وصلت متأخرة ما تضيعش
+
+
+# تحقق تردد RPC عند الـ host: أي طلب أسرع من الحد بيتجاهل (بيحمي من الـ spam)
+func _accept_rpc_rate(is_gas: bool) -> bool:
+	var now_ms: int = Time.get_ticks_msec()
+	var min_ms: int = roundi((min_gas_interval if is_gas else min_jump_interval) * 1000.0)
+	var last_ms: int = _last_gas_recv_ms if is_gas else _last_jump_recv_ms
+	if now_ms - last_ms < min_ms:
+		_dropped_rpc += 1
+		if _dropped_rpc == 1 or _dropped_rpc % 100 == 0:
+			DebugLog.say("NET", "RPC %s اتجاهل (تردد عالي) المجموع=%d" % ["gas" if is_gas else "jump", _dropped_rpc])
+		return false
+	if is_gas:
+		_last_gas_recv_ms = now_ms
+	else:
+		_last_jump_recv_ms = now_ms
+	return true
+
+
+# ---------------------------------------------------------------- حالة الشبكة (host -> client)
+# الـ host بيكتب حالته في خصائص net_* والـ PropertySynchronizer بيبعتها بتردد منخفض (refresh_rate)
+func _publish_state() -> void:
+	if not _online:
+		return
+	net_position = global_position
+	net_rotation = global_transform.basis.get_rotation_quaternion()
+
+
+# الـ client: بيقرّب بسلاسة من الهدف اللي بعته الـ host بدل القفز الفوري
+func _follow_server_state(delta: float) -> void:
+	if not net_position.is_finite() or not net_rotation.is_finite() or net_rotation.length_squared() < 0.5:
+		return # قيمة تالفة من الشبكة: نتجاهلها
+	var target_rot: Quaternion = net_rotation.normalized() # الشبكة ممكن تفقد دقة بسيطة
+	var current: Transform3D = global_transform
+	if current.origin.distance_to(net_position) > net_snap_distance:
+		global_transform = Transform3D(Basis(target_rot), net_position) # respawn / أول اتصال
+		reset_physics_interpolation()
+	else:
+		var weight: float = 1.0 - exp(-net_smooth_speed * delta)
+		var new_pos: Vector3 = current.origin.lerp(net_position, weight)
+		var new_rot: Quaternion = current.basis.get_rotation_quaternion().slerp(target_rot, weight)
+		global_transform = Transform3D(Basis(new_rot), new_pos)
+	# الـ client مفيش عنده فيزيكس حقيقية للدراجة: نمنع أي سرعة تتراكم
+	linear_velocity = Vector3.ZERO
+	angular_velocity = Vector3.ZERO
+
+
+# سرعة العرض ولفّة العجلة. في _physics_process عشان العجلة جزء من الجسم اللي عليه interpolation
+func _update_motion_visuals(delta: float) -> void:
+	var moved: Vector3 = global_position - _last_pos
+	moved.y = 0.0
+	var raw_speed: float = moved.length() / delta
+	var travel_dir: Vector3 = -global_transform.basis.z
+	travel_dir.y = 0.0
+	if travel_dir.length() > 0.25 and raw_speed < 80.0:
+		_wheel_angle -= moved.dot(travel_dir.normalized()) / WHEEL_RADIUS
+		_wheel_pivot.rotation.x = fposmod(_wheel_angle, TAU)
+	_last_pos = global_position
+	if raw_speed > 80.0: # قفزة (respawn / snap)
+		raw_speed = 0.0
+	_vis_speed = lerpf(_vis_speed, raw_speed, 1.0 - exp(-10.0 * delta))
 
 
 # ---------------------------------------------------------------- الكاميرا والشاشة
@@ -361,29 +460,17 @@ func _process(delta: float) -> void:
 	if delta <= 0.0:
 		return
 
-	# سرعة ظاهرة بتتحسب من الحركة الفعلية فبتشتغل نفس الشكل عند الاتنين
-	var moved: Vector3 = global_position - _last_pos
-	moved.y = 0.0
-	var raw_speed: float = moved.length() / delta
-	# العجلة بتلف على قد المسافة اللي اتمشيت (محسوبة من الحركة الفعلية، فبتشتغل عند الاتنين)
-	var travel_dir: Vector3 = -global_transform.basis.z
-	travel_dir.y = 0.0
-	if travel_dir.length() > 0.25 and raw_speed < 80.0:
-		_wheel_angle -= moved.dot(travel_dir.normalized()) / WHEEL_RADIUS
-		_wheel_pivot.rotation.x = fposmod(_wheel_angle, TAU)
-	_last_pos = global_position
-	if raw_speed > 80.0: # قفزة (respawn)
-		raw_speed = 0.0
-	_vis_speed = lerpf(_vis_speed, raw_speed, 1.0 - exp(-10.0 * delta))
+	# الكاميرا بتقرا الموقع من الـ transform المتنعّم (Physics Interpolation) مش من global_position
+	var visual_xf: Transform3D = get_global_transform_interpolated()
 
 	# الكاميرا بتتبع اتجاه الدراجة (من غير ما تتلخبط وهي بتتشقلب)
-	var flat_forward: Vector3 = -global_transform.basis.z
+	var flat_forward: Vector3 = -visual_xf.basis.z
 	flat_forward.y = 0.0
 	if flat_forward.length() > 0.4:
 		var yaw: float = atan2(-flat_forward.x, -flat_forward.z)
 		_cam_yaw = lerp_angle(_cam_yaw, yaw, 1.0 - exp(-camera_yaw_speed * delta))
 	_camera_rig.rotation.y = _cam_yaw
-	var target: Vector3 = global_position + Vector3.UP
+	var target: Vector3 = visual_xf.origin + Vector3.UP
 	_camera_rig.global_position = _camera_rig.global_position.lerp(
 		target, 1.0 - exp(-camera_follow_speed * delta))
 
