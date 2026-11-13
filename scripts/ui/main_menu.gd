@@ -7,11 +7,14 @@ extends Control
 @export_file("*.tscn") var game_scene: String = "res://scenes/worlds/level_01.tscn"
 
 const SessionMode = preload("res://scripts/multiplayer/session_mode.gd")
+const GameVersion = preload("res://scripts/updater/game_version.gd")
 
 const CODE_CHARS: String = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" # من غير حروف بتتلخبط (O/0, I/1)
 const CODE_LENGTH: int = 5
 const MAX_PLAYERS: int = 2
 const READY_KEY: String = "ready"
+const BUILD_KEY: String = "build" # رقم نسخة كل لاعب، لازم يتطابقوا
+const MISMATCH_TEXT: String = "النسخ مختلفة: لازم الاتنين على نفس النسخة (حدّثوا اللعبة)"
 
 @onready var _status_label: Label = %StatusLabel
 
@@ -228,6 +231,7 @@ func _on_lobby_joined(lobby_name: String) -> void:
 	_set_status("")
 	_code_label.text = "كود الروم: %s" % lobby_name
 	GDSync.player_set_data(READY_KEY, false)
+	GDSync.player_set_data(BUILD_KEY, GameVersion.current_build())
 	_ready_button.set_pressed_no_signal(false)
 	_show_screen("room")
 	_refresh_lobby()
@@ -269,7 +273,7 @@ func _refresh_lobby_signal(_client_id: int) -> void:
 
 
 func _on_player_data_changed(_client_id: int, key: String, _value) -> void:
-	if key == READY_KEY:
+	if key == READY_KEY or key == BUILD_KEY:
 		_refresh_lobby()
 
 
@@ -284,9 +288,23 @@ func _is_client_ready(client_id: int) -> bool:
 	return bool(GDSync.player_get_data(client_id, READY_KEY, false))
 
 
+# كل اللاعبين على نفس رقم النسخة؟
+func _builds_match() -> bool:
+	var first: int = -1
+	for id: int in GDSync.lobby_get_all_clients():
+		var build: int = int(GDSync.player_get_data(id, BUILD_KEY, 0))
+		if first == -1:
+			first = build
+		elif build != first:
+			return false
+	return true
+
+
 func _can_start() -> bool:
 	var clients: Array = GDSync.lobby_get_all_clients()
 	if clients.size() < MAX_PLAYERS:
+		return false
+	if not _builds_match():
 		return false
 	for id in clients:
 		if not _is_client_ready(id):
@@ -307,8 +325,11 @@ func _refresh_lobby() -> void:
 		var role: String = "Host" if id == GDSync.get_host() else "Player"
 		var me: String = " (إنت)" if id == my_id else ""
 		var state: String = "جاهز ✓" if _is_client_ready(id) else "مش جاهز"
-		lines.append("%s%s: %s" % [role, me, state])
+		var build: int = int(GDSync.player_get_data(id, BUILD_KEY, 0))
+		lines.append("%s%s: %s (build %d)" % [role, me, state, build])
 	_players_label.text = "اللاعبين %d/%d\n%s" % [clients.size(), MAX_PLAYERS, "\n".join(lines)]
+
+	_set_status("" if _builds_match() else MISMATCH_TEXT)
 
 	# الـ host بيشوف Start، والتاني بيشوف Ready
 	_start_button.visible = is_host
