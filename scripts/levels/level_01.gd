@@ -35,7 +35,8 @@ func _physics_process(_delta: float) -> void:
 	if running or finished or not _is_authority():
 		return
 	var unicycle := get_tree().get_first_node_in_group("unicycle") as RigidBody3D
-	if unicycle != null and unicycle.linear_velocity.length() > 1.0:
+	# السرعة الأفقية بس، عشان نزول الدراجة على الأرض في البداية ما يبدأش التايمر
+	if unicycle != null and Vector2(unicycle.linear_velocity.x, unicycle.linear_velocity.z).length() > 1.0:
 		if _is_online():
 			GDSync.call_func_all(_apply_start)
 		else:

@@ -26,6 +26,7 @@ const WHEEL_RADIUS: float = 0.45
 @export var grip: float = 10.0 # بيقتل الانزلاق الجانبي (أعلى = ملزقة أكتر)
 
 @export_group("Steering")
+@export var steer_response: float = 7.0 # سرعة وصول الدركسيون للقيمة (بيمنع الحدّة على الكيبورد)
 @export var turn_rate: float = 3.2 # راديان/ثانية
 @export var lean_accel: float = 22.0 # ميلان الدور مع السرعة (أعلى = أصعب وأخطر)
 @export var brake_pitch: float = 12.0 # الفرامل بتنبطح بيها لقدام
@@ -36,7 +37,7 @@ const WHEEL_RADIUS: float = 0.45
 @export var balance_kd: float = 6.0 # تثبيت (بيمنع الاهتزاز)
 @export var air_balance: float = 0.2 # التوازن في الهوا (قليل = بتتشقلب)
 @export var fall_tilt_degrees: float = 63.0 # بعد الميل ده بتقع
-@export var recover_time: float = 1.5
+@export var recover_time: float = 0.8
 
 @export_group("Jump")
 @export var jump_velocity: float = 7.5
@@ -62,6 +63,7 @@ var _simulates: bool = true # الجهاز ده هو اللي بيحرّك ال�
 var _role: int = ControlRole.ALL
 
 var _jump_buffer: float = 0.0
+var _steer_smooth: float = 0.0
 var _no_ground_timer: float = 0.0 # بعد القفز نتجاهل الأرض لحظة
 var _fallen_time: float = 0.0
 var _is_fallen: bool = false
@@ -164,6 +166,9 @@ func _physics_process(delta: float) -> void:
 				gas = _remote_gas
 		_:
 			pass
+
+	_steer_smooth = move_toward(_steer_smooth, steer, steer_response * delta)
+	steer = _steer_smooth
 
 	_jump_buffer = maxf(_jump_buffer - delta, 0.0)
 	_no_ground_timer = maxf(_no_ground_timer - delta, 0.0)
