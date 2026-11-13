@@ -55,9 +55,14 @@ const WHEEL_RADIUS: float = 0.45
 @export var min_send_interval: float = 0.05 # أقل فاصل بين إرسالتين بنزين من الـ client (20/ث كحد أقصى)
 @export var snapshot_interval: float = 0.033 # الـ host بيبعت حالة الدراجة كل كام ثانية (~30/ث)
 @export var max_extrapolation: float = 0.25 # أقصى مدة بنتنبأ فيها بمكان الـ host من آخر حزمة (ثانية)
-@export var correction_pos_speed: float = 6.0 # سرعة تصحيح المكان ناحية الـ host (أعلى = أحدّ، أقل = أنعم وأقرب لإحساس التوقّع)
-@export var correction_rot_speed: float = 5.0 # سرعة تصحيح الدوران
-@export var net_snap_distance: float = 6.0 # لو الفرق عن الـ host أكبر من كده بننقل فورًا
+## [FIX-1] خُفّضت من 6.0 إلى 3.0: التصحيح كان حادًا جدًا عند وصول كل snapshot
+## فكان بيخلق قفزة ظاهرة على شاشة الـ client. 3.0 بتعمل تصحيح ناعم خلال ~0.3s بدل ~0.1s
+@export var correction_pos_speed: float = 3.0
+## [FIX-2] خُفّضت من 5.0 إلى 2.5: نفس السبب للدوران
+@export var correction_rot_speed: float = 2.5
+## [FIX-3] خُفّضت من 6.0 إلى 3.5: كنا بننتظر 6m فرق قبل ما ننقل فورًا.
+## 3.5m أقرب للواقع: لو الـ client بعد 3.5m عن الـ host = فيه خلل، ننقل فورًا ومنكملش التصحيح البطيء
+@export var net_snap_distance: float = 3.5
 @export_subgroup("Server rate limit")
 @export var min_gas_interval: float = 0.02 # الـ host يتجاهل أي بنزين أسرع من كده (الـ client الطبيعي 0.05)
 @export var min_jump_interval: float = 0.1 # الـ host يتجاهل أي قفزة أسرع من كده
@@ -138,29 +143,24 @@ func _ready() -> void:
 		_role = ControlRole.ALL
 	else:
 		_role = ControlRole.STEER_BRAKE if GDSync.is_host() else ControlRole.GAS_JUMP
-		# المدخلات بس، والمنادي لازم يكون client (الـ host مالوش يبعت لنفسه)
 		GDSync.expose_func(_receive_gas, ENUMS.EXPOSE_PERMISSION.CLIENT)
 		GDSync.expose_func(_receive_jump, ENUMS.EXPOSE_PERMISSION.CLIENT)
-		# الـ snapshots: الـ host بس هو اللي يقدر ينادي الدالة دي عند الـ client
 		GDSync.expose_func(_receive_snapshot, ENUMS.EXPOSE_PERMISSION.HOST)
 
 	_ensure_input_actions()
 	_log_setup()
 	_spawn_transform = global_transform
 	_last_pos = global_position
-	# الهدف المبدئي عند الـ client = مكان الإنشاء (لحد ما أول حزمة توصل)
 	_cam_yaw = global_rotation.y
 	_model.rotation_degrees.y = model_yaw_degrees
 
 	_camera_rig.top_level = true
-	# الكاميرا بتتحرك في _process وبتاخد الموقع من get_global_transform_interpolated()، فمتتعملش interpolation تاني
 	_camera_rig.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	_camera_rig.global_position = global_position + Vector3.UP
 	_camera_rig.rotation = Vector3(0.0, _cam_yaw, 0.0)
 	_camera.make_current()
 
 
-# طباعة تأكيد إن كل حاجة اتحمّلت صح (مفيدة لو الموديل ما ظهرش أو الشبكة مش شغالة)
 func _log_setup() -> void:
 	var frame_meshes: int = get_node("Visual/Model/Frame").find_children("*", "MeshInstance3D", true, false).size()
 	var wheel_meshes: int = _wheel_pivot.find_children("*", "MeshInstance3D", true, false).size()
@@ -172,7 +172,6 @@ func _log_setup() -> void:
 
 
 func _ensure_input_actions() -> void:
-	# بنسجّل الأكشنز هنا لأن مفيش مكان تاني بيعملها
 	var keys: Dictionary = {
 		&"move_forward": KEY_W, &"move_back": KEY_S,
 		&"move_left": KEY_A, &"move_right": KEY_D, &"jump": KEY_SPACE,
@@ -185,7 +184,6 @@ func _ensure_input_actions() -> void:
 			InputMap.action_add_event(action, ev)
 
 
-# Esc (أو زرار Menu في الموبايل) يرجّعنا للقائمة
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed(&"ui_cancel"):
 		_leave_to_menu()
@@ -197,7 +195,6 @@ func _leave_to_menu() -> void:
 	get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn")
 
 
-# ---------------------------------------------------------------- الفيزيكس
 func _physics_process(delta: float) -> void:
 	_update_motion_visuals(delta)
 
@@ -207,7 +204,7 @@ func _physics_process(delta: float) -> void:
 
 	match _role:
 		ControlRole.ALL:
-			steer = Input.get_axis(&"move_right", &"move_left") # شمال = موجب
+			steer = Input.get_axis(&"move_right", &"move_left")
 			brake = Input.is_action_pressed(&"move_back")
 			gas = Input.get_action_strength(&"move_forward")
 			if Input.is_action_just_pressed(&"jump"):
@@ -220,10 +217,9 @@ func _physics_process(delta: float) -> void:
 				gas = _remote_gas
 				_gas_timed_out = false
 			elif _remote_gas > 0.0 and not _gas_timed_out:
-				_gas_timed_out = true # البنزين وقف يوصل (ضغط الـ client اتأخر أو الشبكة وقعت)
+				_gas_timed_out = true
 				DebugLog.say("NET", "gas timeout: مفيش تحديث من %.2fs" % (now - _remote_gas_time))
 		ControlRole.GAS_JUMP:
-			# توقّع محلي: بنزيني وقفزتي بتتنفذ فورًا، ودركسيون وفرامل الـ host من آخر snapshot (لو لسه طازجة)
 			gas = Input.get_action_strength(&"move_forward")
 			if Input.is_action_just_pressed(&"jump"):
 				_jump_buffer = 0.25
@@ -233,14 +229,13 @@ func _physics_process(delta: float) -> void:
 		_:
 			pass
 
-	_send_client_input(delta) # بيرجع فورًا لو مش الـ client
+	_send_client_input(delta)
 
 	if _authoritative:
 		_net_steer = steer
 		_net_brake = brake
 		_send_snapshot(delta)
 
-	# بنزين ودركسيون بيوصلوا للقيمة تدريجيًا (بيخفّوا إحساس تأخر الشبكة)
 	_gas_smooth = move_toward(_gas_smooth, gas, gas_response * delta)
 	gas = _gas_smooth
 	_steer_smooth = move_toward(_steer_smooth, steer, steer_response * delta)
@@ -256,12 +251,10 @@ func _physics_process(delta: float) -> void:
 	if _is_fallen and not was_fallen:
 		DebugLog.say("UNI", "وقعت (tilt=%d°)" % roundi(rad_to_deg(tilt)))
 
-	# ---- الأرض
 	var ground: Dictionary = _probe_ground(0.15)
 	var grounded: bool = not ground.is_empty() and _no_ground_timer <= 0.0 and not _is_fallen
 	var ground_normal: Vector3 = ground.get("normal", Vector3.UP) as Vector3
 
-	# ---- وقعة / رجوع واقفة
 	if _authoritative:
 		if _is_fallen and not _probe_ground(0.6, 0.6).is_empty():
 			_fallen_time += delta
@@ -271,7 +264,6 @@ func _physics_process(delta: float) -> void:
 		elif not _is_fallen:
 			_fallen_time = 0.0
 
-	# ---- اتجاه الدراجة على الأرض
 	var flat_forward: Vector3 = -global_transform.basis.z
 	flat_forward.y = 0.0
 	if flat_forward.length() > 0.25:
@@ -285,7 +277,6 @@ func _physics_process(delta: float) -> void:
 	var speed_frac: float = clampf(absf(vf) / max_speed, 0.0, 1.0)
 
 	if grounded:
-		# سرعة (أركيد): بنزين / فرامل / احتكاك
 		if brake:
 			vf = move_toward(vf, 0.0, brake_decel * delta)
 		elif gas > 0.0:
@@ -293,9 +284,8 @@ func _physics_process(delta: float) -> void:
 				vf = minf(vf + acceleration * gas * delta, max_speed)
 		else:
 			vf = move_toward(vf, 0.0, coast_drag * delta)
-		vl *= maxf(0.0, 1.0 - grip * delta) # العجلة مبتتزحلقش على جنبها
+		vl *= maxf(0.0, 1.0 - grip * delta)
 
-		# السرعة بتتوزع على مستوى الأرض (عشان المنحدرات)
 		var forward_ground: Vector3 = (_heading - ground_normal * _heading.dot(ground_normal)).normalized()
 		lv = forward_ground * vf + right * vl
 		if _jump_buffer > 0.0:
@@ -305,22 +295,18 @@ func _physics_process(delta: float) -> void:
 			grounded = false
 			DebugLog.say("UNI", "jump (speed=%.1f)" % vf)
 
-		# دوران (yaw): بطيء وهي واقفة، وأقل شوية في السرعة العالية
 		var turn_factor: float = lerpf(0.6, 1.0, clampf(absf(vf) / 6.0, 0.0, 1.0)) * (1.0 - 0.35 * speed_frac)
 		var target_yaw: float = steer * turn_rate * turn_factor
 		av.y = lerpf(av.y, target_yaw, 1.0 - exp(-12.0 * delta))
 
-		# ميلان فيزيكسي: بتميل في الدور، بتنبطح مع الفرامل، بترجع لورا مع البنزين
 		var lean: Vector3 = -right * steer * lean_accel * speed_frac
 		if brake:
 			lean += _heading * brake_pitch * speed_frac
 		lean += -_heading * gas * gas_pitch
 		av += basis_up.cross(lean) * delta
 	elif not _is_fallen:
-		# في الهوا: تحكم بسيط في الدوران بس
 		av.y = lerpf(av.y, steer * turn_rate * 0.4, 1.0 - exp(-4.0 * delta))
 
-	# ---- توازن: بترجع واقفة (ضعيف في الهوا، من غير توازن لو وقعت)
 	if not _is_fallen:
 		var gain: float = 1.0 if grounded else air_balance
 		var err: Vector3 = basis_up.cross(Vector3.UP)
@@ -334,10 +320,9 @@ func _physics_process(delta: float) -> void:
 		if global_position.y < fall_limit:
 			_respawn()
 	else:
-		_reconcile(delta) # الـ client: تصحيح ناعم ناحية الـ host
+		_reconcile(delta)
 
 
-# شعاع للأسفل من مركز العجلة. بيرجّع {} لو مفيش أرض قريبة.
 func _probe_ground(reach: float, start_lift: float = 0.0) -> Dictionary:
 	var from: Vector3 = global_position + global_transform.basis.y * WHEEL_RADIUS + Vector3.UP * start_lift
 	var to: Vector3 = from + Vector3.DOWN * (WHEEL_RADIUS + reach + start_lift)
@@ -345,14 +330,12 @@ func _probe_ground(reach: float, start_lift: float = 0.0) -> Dictionary:
 	return get_world_3d().direct_space_state.intersect_ray(query)
 
 
-# بنرجّعها واقفة في نفس المكان بنفس الاتجاه
 func _recover() -> void:
 	DebugLog.say("UNI", "رجعت واقفة")
 	var yaw: float = atan2(-_heading.x, -_heading.z)
 	_reset_to(Transform3D(Basis(Vector3.UP, yaw), global_position + Vector3.UP * 0.4))
 
 
-# نقطة الرجوع لما الدراجة تقع (بتتنادى من checkpoint.gd)
 func set_checkpoint(target: Transform3D) -> void:
 	_spawn_transform = target
 
@@ -374,13 +357,11 @@ func _reset_to(target: Transform3D) -> void:
 	_fallen_time = 0.0
 	_is_fallen = false
 	_last_pos = global_position
-	reset_physics_interpolation() # الشاشة ما تعملش interpolation من المكان القديم
+	reset_physics_interpolation()
 	_teleport_id += 1
-	_send_snapshot(0.0, true) # الـ client ينقل فورًا (مش interpolation)
+	_send_snapshot(0.0, true)
 
 
-# ---------------------------------------------------------------- الـ client
-# العميل بيبعت المدخلات بس (بنزين / قفز). مفيش أي إرسال لمكان أو سرعة أو حالة الدراجة.
 func _send_client_input(delta: float) -> void:
 	if _role != ControlRole.GAS_JUMP:
 		return
@@ -389,10 +370,8 @@ func _send_client_input(delta: float) -> void:
 	_send_cooldown = maxf(_send_cooldown - delta, 0.0)
 	var changed: bool = not is_equal_approx(gas, _last_sent_gas)
 	if changed:
-		_zero_repeat_time = 0.4 # لو اتسابت القيمة صفر، نكررها شوية عشان لو ضاعت حزمة
+		_zero_repeat_time = 0.4
 	_zero_repeat_time = maxf(_zero_repeat_time - delta, 0.0)
-	# unreliable: لو حزمة ضاعت ما بتتعادش (بتعمل تأخير)، والتكرار بيعوّضها.
-	# _send_cooldown بيحدّ التردد (لو التغيير اتأجل، بيتبعت أول ما الفاصل يخلص لأن _last_sent_gas ما اتغيرش)
 	if _send_cooldown <= 0.0 and (changed or ((gas > 0.0 or _zero_repeat_time > 0.0) and _heartbeat_timer >= heartbeat)):
 		_last_sent_gas = gas
 		_heartbeat_timer = 0.0
@@ -401,16 +380,15 @@ func _send_client_input(delta: float) -> void:
 			DebugLog.say("NET", "gas بعت %.1f" % gas)
 		GDSync.call_func_on_unreliable(GDSync.get_host(), _receive_gas, gas)
 	if Input.is_action_just_pressed(&"jump"):
-		GDSync.call_func_on(GDSync.get_host(), _receive_jump) # reliable: القفزة مهمة
+		GDSync.call_func_on(GDSync.get_host(), _receive_jump)
 
 
-# بتتنفذ عند الـ host بس. بيتحقق من النوع والمدى والتردد قبل ما يستخدم القيمة.
 func _receive_gas(value: float) -> void:
 	if not GDSync.is_host():
 		return
 	if not _accept_rpc_rate(true):
 		return
-	if not is_finite(value): # NaN / inf
+	if not is_finite(value):
 		return
 	var clamped: float = clampf(value, 0.0, 1.0)
 	if not is_equal_approx(clamped, _remote_gas):
@@ -425,10 +403,9 @@ func _receive_jump() -> void:
 	if not _accept_rpc_rate(false):
 		return
 	DebugLog.say("NET", "jump استلمت من الـ client")
-	_jump_buffer = 0.25 # أطول شوية من القفز المحلي، عشان القفزة اللي وصلت متأخرة ما تضيعش
+	_jump_buffer = 0.25
 
 
-# تحقق تردد RPC عند الـ host: أي طلب أسرع من الحد بيتجاهل (بيحمي من الـ spam)
 func _accept_rpc_rate(is_gas: bool) -> bool:
 	var now_ms: int = Time.get_ticks_msec()
 	var min_ms: int = roundi((min_gas_interval if is_gas else min_jump_interval) * 1000.0)
@@ -445,8 +422,6 @@ func _accept_rpc_rate(is_gas: bool) -> bool:
 	return true
 
 
-# ---------------------------------------------------------------- حالة الشبكة (host -> client)
-# الـ host: كل snapshot_interval بيبعت حالة الدراجة (غير مضمون: لو ضاعت حزمة اللي بعدها بتعوّض)
 func _send_snapshot(delta: float, force: bool = false) -> void:
 	if not _online:
 		return
@@ -476,14 +451,13 @@ func _find_peer() -> int:
 	return _peer_id
 
 
-# الـ client: بيستقبل حالة الـ host (بيتجاهل القديم والتالف) وبيخزّن آخر حزمة + دركسيون/فرامل الـ host
 func _receive_snapshot(seq: int, _host_ms: int, teleport_id: int, pos: Vector3, rot: Quaternion, vel: Vector3, steer: float, brake: bool) -> void:
 	if GDSync.is_host():
 		return
 	if not pos.is_finite() or not rot.is_finite() or not vel.is_finite() or not is_finite(steer) or rot.length_squared() < 0.5:
-		return # قيمة تالفة من الشبكة
+		return
 	if seq <= _snap_seq_in:
-		return # حزمة قديمة أو مكررة
+		return
 	_snap_seq_in = seq
 	_snap_count += 1
 	_snap_pos = pos
@@ -493,7 +467,6 @@ func _receive_snapshot(seq: int, _host_ms: int, teleport_id: int, pos: Vector3, 
 	_remote_steer = clampf(steer, -1.0, 1.0)
 	_remote_brake = brake
 	if teleport_id != _snap_teleport or not _have_snapshot:
-		# أول حزمة أو respawn / recover: ننقل فورًا
 		_snap_teleport = teleport_id
 		_have_snapshot = true
 		global_transform = Transform3D(Basis(_snap_rot), pos)
@@ -502,8 +475,9 @@ func _receive_snapshot(seq: int, _host_ms: int, teleport_id: int, pos: Vector3, 
 		reset_physics_interpolation()
 
 
-# الـ client: الفيزيكس المحلية (توقّع) بتمشي لوحدها، وكل tick بنقرّبها شوية من مكان الـ host المتوقّع.
-# المكان المتوقّع = آخر مكان وصل + سرعة الـ host × (عمر الحزمة + نص الـ ping)
+# الـ client: الفيزيكس المحلية (توقّع) بتمشي لوحدها، وكل tick بنقرّبها ناعم من مكان الـ host المتوقّع.
+# [FIX] correction_pos_speed و correction_rot_speed اتخفّضوا عشان التصحيح يبقى أنعم وما يبانش على الشاشة.
+# net_snap_distance اتخفّضت عشان نكتشف التباعد الكبير بكرة ونعمل teleport بدل ما التصحيح البطيء يخلّينا نتباعد أكتر.
 func _reconcile(delta: float) -> void:
 	_log_net_stats(delta)
 	if not _have_snapshot:
@@ -517,10 +491,12 @@ func _reconcile(delta: float) -> void:
 	_err_n += 1
 
 	if error.length() > net_snap_distance:
-		global_transform = Transform3D(Basis(_snap_rot), target_pos) # بعدنا كتير: ننقل فورًا
+		# بعدنا كتير عن الـ host: ننقل فورًا ومنكملش التصحيح البطيء
+		global_transform = Transform3D(Basis(_snap_rot), target_pos)
 		linear_velocity = _snap_vel
 		reset_physics_interpolation()
 		return
+	# تصحيح ناعم: exponential decay بدل jump مفاجئ
 	var new_pos: Vector3 = global_position + error * (1.0 - exp(-correction_pos_speed * delta))
 	var current_rot: Quaternion = global_transform.basis.get_rotation_quaternion()
 	var new_rot: Quaternion = current_rot.slerp(_snap_rot, 1.0 - exp(-correction_rot_speed * delta))
@@ -539,7 +515,6 @@ func _log_net_stats(delta: float) -> void:
 	_err_n = 0
 
 
-# سرعة العرض ولفّة العجلة. في _physics_process عشان العجلة جزء من الجسم اللي عليه interpolation
 func _update_motion_visuals(delta: float) -> void:
 	var moved: Vector3 = global_position - _last_pos
 	moved.y = 0.0
@@ -550,20 +525,15 @@ func _update_motion_visuals(delta: float) -> void:
 		_wheel_angle -= moved.dot(travel_dir.normalized()) / WHEEL_RADIUS
 		_wheel_pivot.rotation.x = fposmod(_wheel_angle, TAU)
 	_last_pos = global_position
-	if raw_speed > 80.0: # قفزة (respawn / snap)
+	if raw_speed > 80.0:
 		raw_speed = 0.0
 	_vis_speed = lerpf(_vis_speed, raw_speed, 1.0 - exp(-10.0 * delta))
 
 
-# ---------------------------------------------------------------- الكاميرا والشاشة
 func _process(delta: float) -> void:
 	if delta <= 0.0:
 		return
-
-	# الكاميرا بتقرا الموقع من الـ transform المتنعّم (Physics Interpolation) مش من global_position
 	var visual_xf: Transform3D = get_global_transform_interpolated()
-
-	# الكاميرا بتتبع اتجاه الدراجة (من غير ما تتلخبط وهي بتتشقلب)
 	var flat_forward: Vector3 = -visual_xf.basis.z
 	flat_forward.y = 0.0
 	if flat_forward.length() > 0.4:
@@ -573,7 +543,6 @@ func _process(delta: float) -> void:
 	var target: Vector3 = visual_xf.origin + Vector3.UP
 	_camera_rig.global_position = _camera_rig.global_position.lerp(
 		target, 1.0 - exp(-camera_follow_speed * delta))
-
 	_update_hud()
 
 
