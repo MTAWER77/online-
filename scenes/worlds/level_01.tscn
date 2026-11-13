@@ -3,6 +3,7 @@
 [ext_resource type="Script" path="res://scripts/levels/level_01.gd" id="1_level"]
 [ext_resource type="Script" path="res://scripts/vehicles/unicycle_spawner.gd" id="2_spawner"]
 [ext_resource type="PackedScene" path="res://scenes/vehicles/unicycle.tscn" id="3_uni"]
+[ext_resource type="PackedScene" path="res://scenes/ui/stats_overlay.tscn" id="9_stats"]
 [ext_resource type="PackedScene" path="res://scenes/ui/mobile_controls.tscn" id="4_mobile"]
 [ext_resource type="PackedScene" path="res://scenes/levels/checkpoint.tscn" id="5_cp"]
 [ext_resource type="PackedScene" path="res://scenes/levels/finish_line.tscn" id="6_fin"]
@@ -656,3 +657,5 @@ grow_vertical = 2
 theme_override_font_sizes/font_size = 36
 horizontal_alignment = 1
 vertical_alignment = 1
+
+[node name="StatsOverlay" parent="." instance=ExtResource("9_stats")]

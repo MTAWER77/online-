@@ -2,6 +2,7 @@
 
 [ext_resource type="Script" path="res://scripts/vehicles/unicycle_spawner.gd" id="1_spawner"]
 [ext_resource type="PackedScene" path="res://scenes/vehicles/unicycle.tscn" id="2_uni"]
+[ext_resource type="PackedScene" path="res://scenes/ui/stats_overlay.tscn" id="9_stats"]
 [ext_resource type="PackedScene" path="res://scenes/ui/mobile_controls.tscn" id="3_mobile"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_grey"]
@@ -183,3 +184,5 @@ script = ExtResource("1_spawner")
 unicycle_scene = ExtResource("2_uni")
 
 [node name="MobileControls" parent="." instance=ExtResource("3_mobile")]
+
+[node name="StatsOverlay" parent="." instance=ExtResource("9_stats")]
