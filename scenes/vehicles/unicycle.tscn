@@ -1,7 +1,8 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://scripts/vehicles/unicycle.gd" id="1_uni"]
-[ext_resource type="PackedScene" path="res://assets/models/unicycle.glb" id="2_model"]
+[ext_resource type="PackedScene" path="res://assets/models/unicycle_frame.glb" id="2_frame"]
+[ext_resource type="PackedScene" path="res://assets/models/unicycle_wheel.glb" id="2_wheel"]
 [ext_resource type="Script" path="res://addons/GD-Sync/Scripts/Types/PropertySynchronizer.gd" id="3_sync"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_uni"]
@@ -36,7 +37,15 @@ shape = SubResource("CapsuleShape3D_body")
 
 [node name="Visual" type="Node3D" parent="."]
 
-[node name="Model" parent="Visual" instance=ExtResource("2_model")]
+[node name="Model" type="Node3D" parent="Visual"]
+
+[node name="Frame" parent="Visual/Model" instance=ExtResource("2_frame")]
+transform = Transform3D(0.15, 0, 0, 0, 0.15, 0, 0, 0, 0.15, 0, 0, 0)
+
+[node name="WheelPivot" type="Node3D" parent="Visual/Model"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4478, 0)
+
+[node name="Wheel" parent="Visual/Model/WheelPivot" instance=ExtResource("2_wheel")]
 transform = Transform3D(0.15, 0, 0, 0, 0.15, 0, 0, 0, 0.15, 0, 0, 0)
 
 [node name="CameraRig" type="Node3D" parent="."]

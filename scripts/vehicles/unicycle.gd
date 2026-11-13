@@ -52,6 +52,7 @@ const WHEEL_RADIUS: float = 0.45
 @export var camera_yaw_speed: float = 4.0
 
 @onready var _model: Node3D = $Visual/Model
+@onready var _wheel_pivot: Node3D = $Visual/Model/WheelPivot
 @onready var _camera_rig: Node3D = $CameraRig
 @onready var _camera: Camera3D = $CameraRig/Camera3D
 @onready var _hud_label: Label = $HUD/Label
@@ -79,6 +80,7 @@ var _heartbeat_timer: float = 0.0
 var _last_pos: Vector3
 var _vis_speed: float = 0.0
 var _cam_yaw: float = 0.0
+var _wheel_angle: float = 0.0
 
 
 func _ready() -> void:
@@ -312,6 +314,12 @@ func _process(delta: float) -> void:
 	var moved: Vector3 = global_position - _last_pos
 	moved.y = 0.0
 	var raw_speed: float = moved.length() / delta
+	# العجلة بتلف على قد المسافة اللي اتمشيت (محسوبة من الحركة الفعلية، فبتشتغل عند الاتنين)
+	var travel_dir: Vector3 = -global_transform.basis.z
+	travel_dir.y = 0.0
+	if travel_dir.length() > 0.25 and raw_speed < 80.0:
+		_wheel_angle -= moved.dot(travel_dir.normalized()) / WHEEL_RADIUS
+		_wheel_pivot.rotation.x = fposmod(_wheel_angle, TAU)
 	_last_pos = global_position
 	if raw_speed > 80.0: # قفزة (respawn)
 		raw_speed = 0.0
