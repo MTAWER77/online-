@@ -10,6 +10,10 @@ extends CanvasLayer
 
 @onready var _joystick: Control = %Joystick
 @onready var _knob: Control = %Knob
+@onready var _gas_button: Control = %GasButton
+@onready var _brake_button: Control = %BrakeButton
+@onready var _jump_button: Control = %JumpButton
+@onready var _menu_button: Control = %MenuButton
 
 var _buttons: Dictionary = {} # Control -> اسم الأكشن
 var _button_touches: Dictionary = {} # رقم اللمسة -> اسم الأكشن
@@ -24,12 +28,10 @@ func _ready() -> void:
 	set_process_input(_active)
 	if not _active:
 		return
-	_buttons = {
-		%GasButton: &"move_forward",
-		%BrakeButton: &"move_back",
-		%JumpButton: &"jump",
-		%MenuButton: &"ui_cancel", # الدراجة بتفهمه كخروج للقائمة
-	}
+	_buttons[_gas_button] = &"move_forward"
+	_buttons[_brake_button] = &"move_back"
+	_buttons[_jump_button] = &"jump"
+	_buttons[_menu_button] = &"ui_cancel" # الدراجة بتفهمه كخروج للقائمة
 	# من غير ما اللمس يتحول لحركة ماوس
 	Input.emulate_mouse_from_touch = false
 	Input.emulate_touch_from_mouse = show_on_desktop
