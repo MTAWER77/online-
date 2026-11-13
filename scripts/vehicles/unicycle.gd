@@ -124,6 +124,9 @@ func _ready() -> void:
 		# والمكان بيتحرك بـ lerp ناحية هدف الـ host في _physics_process.
 		freeze = false
 		gravity_scale = 0.0
+		# شبح: مالوش تصادم، فالـ lerp ناحية الهدف ما يتخانقش مع الأرض أو أي جسم
+		collision_layer = 0
+		collision_mask = 0
 
 	_ensure_input_actions()
 	_log_setup()
