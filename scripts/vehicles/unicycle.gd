@@ -323,7 +323,7 @@ func _receive_gas(value: float) -> void:
 func _receive_jump() -> void:
 	if not GDSync.is_host():
 		return
-	_jump_buffer = 0.15
+	_jump_buffer = 0.25 # أطول شوية من القفز المحلي، عشان القفزة اللي وصلت متأخرة ما تضيعش
 
 
 # ---------------------------------------------------------------- الكاميرا والشاشة
