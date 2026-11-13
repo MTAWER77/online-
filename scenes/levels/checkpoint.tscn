@@ -1,0 +1,35 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/levels/checkpoint.gd" id="1_cp"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_cp"]
+size = Vector3(9, 4, 1.5)
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_post"]
+top_radius = 0.12
+bottom_radius = 0.12
+height = 4.0
+
+[sub_resource type="BoxMesh" id="BoxMesh_banner"]
+size = Vector3(8.4, 0.6, 0.1)
+
+[node name="Checkpoint" type="Area3D"]
+collision_layer = 0
+collision_mask = 1
+script = ExtResource("1_cp")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 0)
+shape = SubResource("BoxShape3D_cp")
+
+[node name="PostL" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.2, 2, 0)
+mesh = SubResource("CylinderMesh_post")
+
+[node name="PostR" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.2, 2, 0)
+mesh = SubResource("CylinderMesh_post")
+
+[node name="Banner" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.6, 0)
+mesh = SubResource("BoxMesh_banner")

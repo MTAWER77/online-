@@ -4,7 +4,7 @@ extends Control
 ## Host: يعمل روم وكود. Join: تكتب الكود وتدخل الروم.
 ## التاني يدوس Ready، والـ host يدوس Start فيدخلوا اللعبة.
 
-@export_file("*.tscn") var game_scene: String = "res://scenes/worlds/unicycle_test.tscn"
+@export_file("*.tscn") var game_scene: String = "res://scenes/worlds/level_01.tscn"
 
 const SessionMode = preload("res://scripts/multiplayer/session_mode.gd")
 

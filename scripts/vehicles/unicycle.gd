@@ -40,7 +40,7 @@ const WHEEL_RADIUS: float = 0.45
 
 @export_group("Jump")
 @export var jump_velocity: float = 7.5
-@export var fall_limit: float = -20.0 # تحت الرقم ده نرجّع الدراجة لمكان البداية
+@export var fall_limit: float = -12.0 # تحت الرقم ده نرجّع الدراجة لمكان البداية
 
 @export_group("Network")
 @export var input_timeout: float = 0.6 # لو البنزين ماوصلش أحدث من كده نصفّره (عشان ما يعلقش)
@@ -84,6 +84,7 @@ var _wheel_angle: float = 0.0
 
 
 func _ready() -> void:
+	add_to_group("unicycle")
 	# الـ spawner بيشيل الـ PropertySynchronizer قبل ما يضيفنا لو أوفلاين
 	_online = not SessionMode.offline and GDSync.is_active()
 	_simulates = (not _online) or GDSync.is_host()
@@ -260,12 +261,22 @@ func _recover() -> void:
 	_reset_to(Transform3D(Basis(Vector3.UP, yaw), global_position + Vector3.UP * 0.4))
 
 
+# نقطة الرجوع لما الدراجة تقع (بتتنادى من checkpoint.gd)
+func set_checkpoint(target: Transform3D) -> void:
+	_spawn_transform = target
+
+
 func _respawn() -> void:
 	_reset_to(_spawn_transform)
 
 
 func _reset_to(target: Transform3D) -> void:
 	global_transform = target
+	var flat: Vector3 = -target.basis.z
+	flat.y = 0.0
+	if flat.length() > 0.1:
+		_heading = flat.normalized()
+	_cam_yaw = target.basis.get_euler().y
 	linear_velocity = Vector3.ZERO
 	angular_velocity = Vector3.ZERO
 	_fallen_time = 0.0
