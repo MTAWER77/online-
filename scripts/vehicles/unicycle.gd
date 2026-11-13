@@ -11,7 +11,7 @@ extends RigidBody3D
 ## recover_time ثانية وبعدين بترجع واقفة. تصادم بسرعة عالية = تشقلب.
 ## الـ host هو اللي بيحرّك الدراجة (authoritative). الـ client بيبعت المدخلات بس (البنزين والقفز)
 ## والـ host بيتحقق منها (نوع/مدى/تردد). عمره ما بيبعت مكان أو حالة.
-## الـ host بيعلن حالته (net_position / net_rotation) عن طريق PropertySynchronizer بتردد منخفض،
+## الـ host بيبعت snapshots (مكان + دوران + سرعة + وقته) كل 0.033s عن طريق RPC غير مضمون،
 ## والـ client بيحتفظ بيها كهدف وبيقرّب منه بـ lerp في _physics_process (من غير ما يقفز).
 ## الـ global_transform نفسه مش بيتزامن. و Physics Interpolation شغال في المشروع.
 
@@ -51,9 +51,11 @@ const WHEEL_RADIUS: float = 0.45
 @export var input_timeout: float = 0.35 # لو البنزين ماوصلش أحدث من كده نصفّره (عشان ما يعلقش)
 @export var heartbeat: float = 0.1 # الـ client بيكرر البنزين كل كام ثانية طول ما هو ضاغط
 @export var min_send_interval: float = 0.05 # أقل فاصل بين إرسالتين بنزين من الـ client (20/ث كحد أقصى)
-@export var net_smooth_speed: float = 18.0 # سرعة اقتراب الـ client من هدف الـ host (أعلى = أحدّ)
-@export var max_extrapolation: float = 0.25 # أقصى مدة تنبؤ بالحركة (ثانية)، بعدها بنوقف عشان ما نبعدش عن الحقيقة
-@export var net_snap_distance: float = 4.0 # لو الفرق أكبر من كده (respawn / أول اتصال) بننقل فورًا
+@export var snapshot_interval: float = 0.033 # الـ host بيبعت حالة الدراجة كل كام ثانية (~30/ث)
+@export var interp_delay: float = 0.1 # الـ client بيعرض الماضي بالمدة دي، فبيلاقي دايمًا حزمتين يدخّل بينهم (بيخفي الـ jitter)
+@export var max_extrapolation: float = 0.25 # لو الحزم اتأخرت: أقصى مدة تنبؤ بالسرعة (ثانية)
+@export var net_smooth_speed: float = 35.0 # تنعيم نهائي صغير فوق الـ interpolation (أعلى = أحدّ)
+@export var net_snap_distance: float = 4.0 # لو الفرق أكبر من كده بننقل فورًا
 @export_subgroup("Server rate limit")
 @export var min_gas_interval: float = 0.02 # الـ host يتجاهل أي بنزين أسرع من كده (الـ client الطبيعي 0.05)
 @export var min_jump_interval: float = 0.1 # الـ host يتجاهل أي قفزة أسرع من كده
@@ -81,15 +83,20 @@ var _is_fallen: bool = false
 var _heading: Vector3 = Vector3.FORWARD
 var _spawn_transform: Transform3D
 
-# حالة الـ host اللي بتتزامن (PropertySynchronizer). الـ client بيعاملها كهدف بس.
-# (دول بدل global_position / quaternion اللي كانوا بيتزامنوا قبل كده)
-var net_position: Vector3 = Vector3.ZERO
-var net_rotation: Quaternion = Quaternion.IDENTITY
-var net_velocity: Vector3 = Vector3.ZERO # الـ client بيتنبأ بيها بين الحزم (dead reckoning)
-
-# عند الـ client: آخر وقت وصلت فيه حزمة جديدة
-var _last_net_position: Vector3 = Vector3.INF
-var _net_update_ms: int = 0
+# snapshots (host -> client)
+var _snap_timer: float = 0.0
+var _snap_seq_out: int = 0
+var _teleport_id: int = 0 # بيزيد مع كل respawn / recover عشان الـ client ينقل فورًا
+var _peer_id: int = -1
+var _peer_check_ms: int = 0
+# عند الـ client
+var _snapshots: Array[Dictionary] = []
+var _snap_seq_in: int = -1
+var _snap_teleport: int = 0
+var _clock_ready: bool = false
+var _offset_ms: float = 0.0 # (وقت الـ client - وقت الـ host) المقاس = latency + فرق الساعتين، بنستخدم أقل قيمة
+var _snap_count: int = 0
+var _stats_timer: float = 0.0
 
 # مدخلات الـ client عند الـ host
 var _remote_gas: float = 0.0
@@ -114,7 +121,6 @@ var _wheel_angle: float = 0.0
 
 func _ready() -> void:
 	add_to_group("unicycle")
-	# الـ spawner بيشيل الـ PropertySynchronizer قبل ما يضيفنا لو أوفلاين
 	_online = not SessionMode.offline and GDSync.is_active()
 	_simulates = (not _online) or GDSync.is_host()
 	if not _online:
@@ -124,6 +130,8 @@ func _ready() -> void:
 		# المدخلات بس، والمنادي لازم يكون client (الـ host مالوش يبعت لنفسه)
 		GDSync.expose_func(_receive_gas, ENUMS.EXPOSE_PERMISSION.CLIENT)
 		GDSync.expose_func(_receive_jump, ENUMS.EXPOSE_PERMISSION.CLIENT)
+		# الـ snapshots: الـ host بس هو اللي يقدر ينادي الدالة دي عند الـ client
+		GDSync.expose_func(_receive_snapshot, ENUMS.EXPOSE_PERMISSION.HOST)
 
 	if not _simulates:
 		# عند الـ client: الجسم مش frozen. مفيش قوى بتحرّكه (الجاذبية متعطلة والسرعات بتتصفّر)،
@@ -139,8 +147,6 @@ func _ready() -> void:
 	_spawn_transform = global_transform
 	_last_pos = global_position
 	# الهدف المبدئي عند الـ client = مكان الإنشاء (لحد ما أول حزمة توصل)
-	net_position = global_position
-	net_rotation = global_transform.basis.get_rotation_quaternion()
 	_cam_yaw = global_rotation.y
 	_model.rotation_degrees.y = model_yaw_degrees
 
@@ -156,9 +162,8 @@ func _ready() -> void:
 func _log_setup() -> void:
 	var frame_meshes: int = get_node("Visual/Model/Frame").find_children("*", "MeshInstance3D", true, false).size()
 	var wheel_meshes: int = _wheel_pivot.find_children("*", "MeshInstance3D", true, false).size()
-	var sync: Node = get_node_or_null("PropertySynchronizer")
-	DebugLog.say("UNI", "online=%s simulates=%s role=%d sync=%s pos=%s" % [
-		_online, _simulates, _role, sync != null, global_position])
+	DebugLog.say("UNI", "online=%s simulates=%s role=%d pos=%s" % [
+		_online, _simulates, _role, global_position])
 	DebugLog.say("UNI", "meshes: frame=%d wheel=%d (0 = الموديل ما اتعملوش import)" % [frame_meshes, wheel_meshes])
 	if _online:
 		DebugLog.say("UNI", "client_id=%d host=%s host_id=%d" % [GDSync.get_client_id(), GDSync.is_host(), GDSync.get_host()])
@@ -197,7 +202,7 @@ func _physics_process(delta: float) -> void:
 		_follow_server_state(delta)
 		_send_client_input(delta)
 		return
-	_publish_state()
+	_send_snapshot(delta)
 
 	var steer: float = 0.0
 	var brake: bool = false
@@ -351,7 +356,8 @@ func _reset_to(target: Transform3D) -> void:
 	_is_fallen = false
 	_last_pos = global_position
 	reset_physics_interpolation() # الشاشة ما تعملش interpolation من المكان القديم
-	_publish_state() # الهدف الجديد يتبعت فورًا؛ والـ client بينقل فورًا لو الفرق كبير
+	_teleport_id += 1
+	_send_snapshot(0.0, true) # الـ client ينقل فورًا (مش interpolation)
 
 
 # ---------------------------------------------------------------- الـ client
@@ -421,35 +427,103 @@ func _accept_rpc_rate(is_gas: bool) -> bool:
 
 
 # ---------------------------------------------------------------- حالة الشبكة (host -> client)
-# الـ host بيكتب حالته في خصائص net_* والـ PropertySynchronizer بيبعتها بتردد منخفض (refresh_rate)
-func _publish_state() -> void:
+# الـ host: كل snapshot_interval بيبعت حالة الدراجة (غير مضمون: لو ضاعت حزمة اللي بعدها بتعوّض)
+func _send_snapshot(delta: float, force: bool = false) -> void:
 	if not _online:
 		return
-	net_position = global_position
-	net_rotation = global_transform.basis.get_rotation_quaternion()
-	net_velocity = linear_velocity
+	_snap_timer += delta
+	if not force and _snap_timer < snapshot_interval:
+		return
+	_snap_timer = 0.0
+	var peer: int = _find_peer()
+	if peer < 0:
+		return
+	_snap_seq_out += 1
+	GDSync.call_func_on_unreliable(peer, _receive_snapshot, _snap_seq_out, Time.get_ticks_msec(), _teleport_id,
+		global_position, global_transform.basis.get_rotation_quaternion(), linear_velocity)
 
 
-# الـ client: بيقرّب بسلاسة من الهدف اللي بعته الـ host بدل القفز الفوري
+func _find_peer() -> int:
+	var now_ms: int = Time.get_ticks_msec()
+	if _peer_id >= 0 and now_ms - _peer_check_ms < 1000:
+		return _peer_id
+	_peer_check_ms = now_ms
+	_peer_id = -1
+	var my_id: int = GDSync.get_client_id()
+	for id: int in GDSync.lobby_get_all_clients():
+		if id != my_id:
+			_peer_id = id
+			break
+	return _peer_id
+
+
+# الـ client: بيخزّن الحزم (بيتجاهل القديمة والتالفة) ويظبط فرق الساعة مع الـ host
+func _receive_snapshot(seq: int, host_ms: int, teleport_id: int, pos: Vector3, rot: Quaternion, vel: Vector3) -> void:
+	if GDSync.is_host():
+		return
+	if not pos.is_finite() or not rot.is_finite() or not vel.is_finite() or rot.length_squared() < 0.5:
+		return # قيمة تالفة من الشبكة
+	if seq <= _snap_seq_in:
+		return # حزمة قديمة أو مكررة
+	_snap_seq_in = seq
+	_snap_count += 1
+
+	var sample: float = float(Time.get_ticks_msec() - host_ms)
+	if not _clock_ready:
+		_offset_ms = sample
+		_clock_ready = true
+	elif sample < _offset_ms:
+		_offset_ms = sample # أسرع حزمة = أقرب تقدير للـ latency الحقيقي
+	else:
+		_offset_ms += (sample - _offset_ms) * 0.02 # بيتبع الانحراف البطيء في الساعتين
+
+	var q: Quaternion = rot.normalized()
+	if teleport_id != _snap_teleport or _snapshots.is_empty():
+		_snap_teleport = teleport_id
+		_snapshots.clear()
+		global_transform = Transform3D(Basis(q), pos) # أول حزمة أو respawn: ننقل فورًا
+		reset_physics_interpolation()
+	_snapshots.append({"t": float(host_ms) / 1000.0, "p": pos, "r": q, "v": vel})
+	if _snapshots.size() > 20:
+		_snapshots.pop_front()
+
+
+# الـ client: بيعرض حالة الدراجة من interp_delay ثانية فاتت، بيدخّل بين حزمتين (أنعم طريقة مع الـ jitter)
 func _follow_server_state(delta: float) -> void:
-	if not net_position.is_finite() or not net_rotation.is_finite() or net_rotation.length_squared() < 0.5:
-		return # قيمة تالفة من الشبكة: نتجاهلها
-	var target_rot: Quaternion = net_rotation.normalized() # الشبكة ممكن تفقد دقة بسيطة
+	_log_net_stats(delta)
+	if _snapshots.is_empty() or not _clock_ready:
+		return
+	var host_now: float = (float(Time.get_ticks_msec()) - _offset_ms) / 1000.0
+	var render_t: float = host_now - interp_delay
 
-	# تنبؤ (dead reckoning): الحزمة دايمًا قديمة بقد وقت الشبكة + الوقت من ساعة ما وصلت،
-	# فبنزوّد على الهدف سرعة الـ host × الوقت ده. بيخلّي الحركة تفضل ماشية بين الحزم وقت الـ ping العالي.
-	if net_position != _last_net_position:
-		_last_net_position = net_position
-		_net_update_ms = Time.get_ticks_msec()
-	var age: float = float(Time.get_ticks_msec() - _net_update_ms) / 1000.0
-	var one_way: float = clampf(SessionMode.last_ping_ms, 0.0, 300.0) / 2000.0 # نص الـ ping بالثواني
-	var lead: float = minf(age + one_way, max_extrapolation)
-	var velocity: Vector3 = net_velocity if net_velocity.is_finite() else Vector3.ZERO
-	var target_pos: Vector3 = net_position + velocity * lead
+	var target_pos: Vector3
+	var target_rot: Quaternion
+	var newest: Dictionary = _snapshots[_snapshots.size() - 1]
+	if render_t >= float(newest["t"]):
+		# مفيش حزمة أحدث من وقت العرض (حزم اتأخرت): نكمّل بالسرعة لمدة محدودة
+		var lead: float = minf(render_t - float(newest["t"]), max_extrapolation)
+		target_pos = (newest["p"] as Vector3) + (newest["v"] as Vector3) * lead
+		target_rot = newest["r"] as Quaternion
+	else:
+		var index: int = -1
+		for i in range(_snapshots.size() - 2, -1, -1):
+			if float(_snapshots[i]["t"]) <= render_t:
+				index = i
+				break
+		if index == -1:
+			target_pos = _snapshots[0]["p"] as Vector3
+			target_rot = _snapshots[0]["r"] as Quaternion
+		else:
+			var a: Dictionary = _snapshots[index]
+			var b: Dictionary = _snapshots[index + 1]
+			var span: float = float(b["t"]) - float(a["t"])
+			var alpha: float = 0.0 if span <= 0.0001 else clampf((render_t - float(a["t"])) / span, 0.0, 1.0)
+			target_pos = (a["p"] as Vector3).lerp(b["p"] as Vector3, alpha)
+			target_rot = (a["r"] as Quaternion).slerp(b["r"] as Quaternion, alpha)
 
 	var current: Transform3D = global_transform
 	if current.origin.distance_to(target_pos) > net_snap_distance:
-		global_transform = Transform3D(Basis(target_rot), target_pos) # respawn / أول اتصال
+		global_transform = Transform3D(Basis(target_rot), target_pos)
 		reset_physics_interpolation()
 	else:
 		var weight: float = 1.0 - exp(-net_smooth_speed * delta)
@@ -459,6 +533,16 @@ func _follow_server_state(delta: float) -> void:
 	# الـ client مفيش عنده فيزيكس حقيقية للدراجة: نمنع أي سرعة تتراكم
 	linear_velocity = Vector3.ZERO
 	angular_velocity = Vector3.ZERO
+
+
+func _log_net_stats(delta: float) -> void:
+	_stats_timer += delta
+	if _stats_timer < 5.0:
+		return
+	DebugLog.say("NET", "snapshots %.0f/s offset=%.0fms buffer=%d" % [
+		_snap_count / _stats_timer, _offset_ms, _snapshots.size()])
+	_stats_timer = 0.0
+	_snap_count = 0
 
 
 # سرعة العرض ولفّة العجلة. في _physics_process عشان العجلة جزء من الجسم اللي عليه interpolation

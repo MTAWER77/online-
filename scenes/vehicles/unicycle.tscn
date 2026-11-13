@@ -1,9 +1,8 @@
-[gd_scene load_steps=9 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://scripts/vehicles/unicycle.gd" id="1_uni"]
 [ext_resource type="PackedScene" path="res://assets/models/unicycle_frame.glb" id="2_frame"]
 [ext_resource type="PackedScene" path="res://assets/models/unicycle_wheel.glb" id="2_wheel"]
-[ext_resource type="Script" path="res://addons/GD-Sync/Scripts/Types/PropertySynchronizer.gd" id="3_sync"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_uni"]
 friction = 0.0
@@ -62,11 +61,3 @@ offset_top = 8.0
 offset_right = 520.0
 offset_bottom = 70.0
 theme_override_font_sizes/font_size = 20
-
-[node name="PropertySynchronizer" type="Node" parent="."]
-script = ExtResource("3_sync")
-broadcast = 0
-process = 1
-refresh_rate = 20
-node_path = NodePath("..")
-properties = PackedStringArray("net_position", "net_rotation", "net_velocity")
