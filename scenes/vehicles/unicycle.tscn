@@ -1,20 +1,38 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://scripts/vehicles/unicycle.gd" id="1_uni"]
 [ext_resource type="PackedScene" path="res://assets/models/unicycle.glb" id="2_model"]
 [ext_resource type="Script" path="res://addons/GD-Sync/Scripts/Types/PropertySynchronizer.gd" id="3_sync"]
 
-[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_uni"]
-radius = 0.3
-height = 1.5
+[sub_resource type="PhysicsMaterial" id="PhysicsMaterial_uni"]
+friction = 0.0
+bounce = 0.15
 
-[node name="Unicycle" type="CharacterBody3D"]
-floor_snap_length = 0.3
+[sub_resource type="SphereShape3D" id="SphereShape3D_wheel"]
+radius = 0.45
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
+radius = 0.22
+height = 1.0
+
+[node name="Unicycle" type="RigidBody3D"]
+mass = 10.0
+physics_material_override = SubResource("PhysicsMaterial_uni")
+center_of_mass_mode = 1
+center_of_mass = Vector3(0, 0.55, 0)
+can_sleep = false
+continuous_cd = true
+linear_damp = 0.05
+angular_damp = 0.8
 script = ExtResource("1_uni")
 
-[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.75, 0)
-shape = SubResource("CapsuleShape3D_uni")
+[node name="WheelShape" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.45, 0)
+shape = SubResource("SphereShape3D_wheel")
+
+[node name="BodyShape" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.0, 0)
+shape = SubResource("CapsuleShape3D_body")
 
 [node name="Visual" type="Node3D" parent="."]
 
