@@ -4,3 +4,5 @@ extends RefCounted
 ## القائمة الرئيسية بتظبطه، والدراجة بتقراه.
 
 static var offline: bool = false
+# آخر ping اتقاس في اللوبي (ms)، -1 لو مش معروف. بيحدد معدل المزامنة.
+static var last_ping_ms: float = -1.0

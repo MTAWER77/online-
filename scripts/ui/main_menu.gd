@@ -102,6 +102,7 @@ func _measure_ping() -> void:
 	if seconds < 0.0:
 		_ping_label.text = "Ping: -"
 	else:
+		SessionMode.last_ping_ms = seconds * 1000.0
 		_ping_label.text = "Ping: %d ms\n(اللي نته أحسن يعمل Host)" % roundi(seconds * 1000.0)
 
 

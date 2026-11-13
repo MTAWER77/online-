@@ -4,6 +4,7 @@ extends Area3D
 ## والدراجة لما تقع بترجع هنا بنفس اتجاه النقطة (لفّها في المشهد عشان تتحكم في الاتجاه).
 
 const SessionMode = preload("res://scripts/multiplayer/session_mode.gd")
+const DebugLog = preload("res://scripts/systems/debug_log.gd")
 
 @onready var _banner: MeshInstance3D = $Banner
 
@@ -31,6 +32,7 @@ func _apply_activate() -> void:
 	if activated:
 		return
 	activated = true
+	DebugLog.say("CP", "%s اتفعّلت" % name)
 	_refresh_visual()
 	var unicycle := get_tree().get_first_node_in_group("unicycle")
 	if unicycle != null:

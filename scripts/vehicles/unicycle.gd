@@ -13,6 +13,7 @@ extends RigidBody3D
 ## وجسمها عنده frozen والمكان والدوران بيجوله بـ PropertySynchronizer.
 
 const SessionMode = preload("res://scripts/multiplayer/session_mode.gd")
+const DebugLog = preload("res://scripts/systems/debug_log.gd")
 
 enum ControlRole { ALL, STEER_BRAKE, GAS_JUMP }
 
@@ -78,6 +79,7 @@ var _remote_gas_time: float = -100.0
 var _last_sent_gas: float = -1.0
 var _heartbeat_timer: float = 0.0
 var _zero_repeat_time: float = 0.0
+var _gas_timed_out: bool = false
 
 # للشكل
 var _last_pos: Vector3
@@ -104,6 +106,7 @@ func _ready() -> void:
 		freeze = true
 
 	_ensure_input_actions()
+	_log_setup()
 	_spawn_transform = global_transform
 	_last_pos = global_position
 	_cam_yaw = global_rotation.y
@@ -113,6 +116,18 @@ func _ready() -> void:
 	_camera_rig.global_position = global_position + Vector3.UP
 	_camera_rig.rotation = Vector3(0.0, _cam_yaw, 0.0)
 	_camera.make_current()
+
+
+# طباعة تأكيد إن كل حاجة اتحمّلت صح (مفيدة لو الموديل ما ظهرش أو الشبكة مش شغالة)
+func _log_setup() -> void:
+	var frame_meshes: int = get_node("Visual/Model/Frame").find_children("*", "MeshInstance3D", true, false).size()
+	var wheel_meshes: int = _wheel_pivot.find_children("*", "MeshInstance3D", true, false).size()
+	var sync: Node = get_node_or_null("PropertySynchronizer")
+	DebugLog.say("UNI", "online=%s simulates=%s role=%d sync=%s pos=%s" % [
+		_online, _simulates, _role, sync != null, global_position])
+	DebugLog.say("UNI", "meshes: frame=%d wheel=%d (0 = الموديل ما اتعملوش import)" % [frame_meshes, wheel_meshes])
+	if _online:
+		DebugLog.say("UNI", "client_id=%d host=%s host_id=%d" % [GDSync.get_client_id(), GDSync.is_host(), GDSync.get_host()])
 
 
 func _ensure_input_actions() -> void:
@@ -164,6 +179,10 @@ func _physics_process(delta: float) -> void:
 			var now: float = Time.get_ticks_msec() / 1000.0
 			if now - _remote_gas_time <= input_timeout:
 				gas = _remote_gas
+				_gas_timed_out = false
+			elif _remote_gas > 0.0 and not _gas_timed_out:
+				_gas_timed_out = true # البنزين وقف يوصل (ضغط الـ client اتأخر أو الشبكة وقعت)
+				DebugLog.say("NET", "gas timeout: مفيش تحديث من %.2fs" % (now - _remote_gas_time))
 		_:
 			pass
 
@@ -175,7 +194,10 @@ func _physics_process(delta: float) -> void:
 
 	var basis_up: Vector3 = global_transform.basis.y
 	var tilt: float = acos(clampf(basis_up.dot(Vector3.UP), -1.0, 1.0))
+	var was_fallen: bool = _is_fallen
 	_is_fallen = tilt > deg_to_rad(fall_tilt_degrees)
+	if _is_fallen and not was_fallen:
+		DebugLog.say("UNI", "وقعت (tilt=%d°)" % roundi(rad_to_deg(tilt)))
 
 	# ---- الأرض
 	var ground: Dictionary = _probe_ground(0.15)
@@ -223,6 +245,7 @@ func _physics_process(delta: float) -> void:
 			_jump_buffer = 0.0
 			_no_ground_timer = 0.2
 			grounded = false
+			DebugLog.say("UNI", "jump (speed=%.1f)" % vf)
 
 		# دوران (yaw): بطيء وهي واقفة، وأقل شوية في السرعة العالية
 		var turn_factor: float = lerpf(0.6, 1.0, clampf(absf(vf) / 6.0, 0.0, 1.0)) * (1.0 - 0.35 * speed_frac)
@@ -263,6 +286,7 @@ func _probe_ground(reach: float, start_lift: float = 0.0) -> Dictionary:
 
 # بنرجّعها واقفة في نفس المكان بنفس الاتجاه
 func _recover() -> void:
+	DebugLog.say("UNI", "رجعت واقفة")
 	var yaw: float = atan2(-_heading.x, -_heading.z)
 	_reset_to(Transform3D(Basis(Vector3.UP, yaw), global_position + Vector3.UP * 0.4))
 
@@ -273,6 +297,7 @@ func set_checkpoint(target: Transform3D) -> void:
 
 
 func _respawn() -> void:
+	DebugLog.say("UNI", "respawn عند نقطة الرجوع %s" % _spawn_transform.origin)
 	_reset_to(_spawn_transform)
 
 
@@ -307,6 +332,8 @@ func _send_client_input(delta: float) -> void:
 	if changed or ((gas > 0.0 or _zero_repeat_time > 0.0) and _heartbeat_timer >= heartbeat):
 		_last_sent_gas = gas
 		_heartbeat_timer = 0.0
+		if changed:
+			DebugLog.say("NET", "gas بعت %.1f" % gas)
 		GDSync.call_func_on_unreliable(GDSync.get_host(), _receive_gas, gas)
 	if Input.is_action_just_pressed(&"jump"):
 		GDSync.call_func_on(GDSync.get_host(), _receive_jump) # reliable: القفزة مهمة
@@ -316,6 +343,8 @@ func _send_client_input(delta: float) -> void:
 func _receive_gas(value: float) -> void:
 	if not GDSync.is_host():
 		return
+	if not is_equal_approx(value, _remote_gas):
+		DebugLog.say("NET", "gas استلمت %.1f" % value)
 	_remote_gas = clampf(value, 0.0, 1.0)
 	_remote_gas_time = Time.get_ticks_msec() / 1000.0
 
@@ -323,6 +352,7 @@ func _receive_gas(value: float) -> void:
 func _receive_jump() -> void:
 	if not GDSync.is_host():
 		return
+	DebugLog.say("NET", "jump استلمت من الـ client")
 	_jump_buffer = 0.25 # أطول شوية من القفز المحلي، عشان القفزة اللي وصلت متأخرة ما تضيعش
 
 
