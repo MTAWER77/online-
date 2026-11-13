@@ -1,0 +1,47 @@
+[gd_scene format=3 uid="uid://vjtd3bfee5yj"]
+
+[ext_resource type="PackedScene" path="res://scenes/ui/mobile_controls.tscn" id="6_2602c"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_floor"]
+size = Vector3(40, 1, 40)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_grey"]
+albedo_color = Color(0.6, 0.6, 0.6, 1)
+
+[sub_resource type="BoxMesh" id="BoxMesh_floor"]
+material = SubResource("StandardMaterial3D_grey")
+size = Vector3(40, 1, 40)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_step"]
+size = Vector3(2, 1, 2)
+
+[sub_resource type="BoxMesh" id="BoxMesh_step"]
+material = SubResource("StandardMaterial3D_grey")
+size = Vector3(2, 1, 2)
+
+[node name="TestRoom2" type="Node3D" unique_id=310767998]
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=931712046]
+transform = Transform3D(1, 0, 0, 0, 0.7071, 0.7071, 0, -0.7071, 0.7071, 0, 8, 0)
+shadow_enabled = true
+
+[node name="Floor" type="StaticBody3D" parent="." unique_id=997532582]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Floor" unique_id=1070224544]
+shape = SubResource("BoxShape3D_floor")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Floor" unique_id=1840868470]
+mesh = SubResource("BoxMesh_floor")
+
+[node name="Step" type="StaticBody3D" parent="." unique_id=318331203]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4, 0.5, -4)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Step" unique_id=565665610]
+shape = SubResource("BoxShape3D_step")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Step" unique_id=1683416601]
+mesh = SubResource("BoxMesh_step")
+
+[node name="MobileControls" parent="." unique_id=389287120 instance=ExtResource("6_2602c")]
+visible = false
