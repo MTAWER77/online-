@@ -52,6 +52,7 @@ const WHEEL_RADIUS: float = 0.45
 @export var heartbeat: float = 0.1 # الـ client بيكرر البنزين كل كام ثانية طول ما هو ضاغط
 @export var min_send_interval: float = 0.05 # أقل فاصل بين إرسالتين بنزين من الـ client (20/ث كحد أقصى)
 @export var net_smooth_speed: float = 18.0 # سرعة اقتراب الـ client من هدف الـ host (أعلى = أحدّ)
+@export var max_extrapolation: float = 0.25 # أقصى مدة تنبؤ بالحركة (ثانية)، بعدها بنوقف عشان ما نبعدش عن الحقيقة
 @export var net_snap_distance: float = 4.0 # لو الفرق أكبر من كده (respawn / أول اتصال) بننقل فورًا
 @export_subgroup("Server rate limit")
 @export var min_gas_interval: float = 0.02 # الـ host يتجاهل أي بنزين أسرع من كده (الـ client الطبيعي 0.05)
@@ -84,6 +85,11 @@ var _spawn_transform: Transform3D
 # (دول بدل global_position / quaternion اللي كانوا بيتزامنوا قبل كده)
 var net_position: Vector3 = Vector3.ZERO
 var net_rotation: Quaternion = Quaternion.IDENTITY
+var net_velocity: Vector3 = Vector3.ZERO # الـ client بيتنبأ بيها بين الحزم (dead reckoning)
+
+# عند الـ client: آخر وقت وصلت فيه حزمة جديدة
+var _last_net_position: Vector3 = Vector3.INF
+var _net_update_ms: int = 0
 
 # مدخلات الـ client عند الـ host
 var _remote_gas: float = 0.0
@@ -421,6 +427,7 @@ func _publish_state() -> void:
 		return
 	net_position = global_position
 	net_rotation = global_transform.basis.get_rotation_quaternion()
+	net_velocity = linear_velocity
 
 
 # الـ client: بيقرّب بسلاسة من الهدف اللي بعته الـ host بدل القفز الفوري
@@ -428,13 +435,25 @@ func _follow_server_state(delta: float) -> void:
 	if not net_position.is_finite() or not net_rotation.is_finite() or net_rotation.length_squared() < 0.5:
 		return # قيمة تالفة من الشبكة: نتجاهلها
 	var target_rot: Quaternion = net_rotation.normalized() # الشبكة ممكن تفقد دقة بسيطة
+
+	# تنبؤ (dead reckoning): الحزمة دايمًا قديمة بقد وقت الشبكة + الوقت من ساعة ما وصلت،
+	# فبنزوّد على الهدف سرعة الـ host × الوقت ده. بيخلّي الحركة تفضل ماشية بين الحزم وقت الـ ping العالي.
+	if net_position != _last_net_position:
+		_last_net_position = net_position
+		_net_update_ms = Time.get_ticks_msec()
+	var age: float = float(Time.get_ticks_msec() - _net_update_ms) / 1000.0
+	var one_way: float = clampf(SessionMode.last_ping_ms, 0.0, 300.0) / 2000.0 # نص الـ ping بالثواني
+	var lead: float = minf(age + one_way, max_extrapolation)
+	var velocity: Vector3 = net_velocity if net_velocity.is_finite() else Vector3.ZERO
+	var target_pos: Vector3 = net_position + velocity * lead
+
 	var current: Transform3D = global_transform
-	if current.origin.distance_to(net_position) > net_snap_distance:
-		global_transform = Transform3D(Basis(target_rot), net_position) # respawn / أول اتصال
+	if current.origin.distance_to(target_pos) > net_snap_distance:
+		global_transform = Transform3D(Basis(target_rot), target_pos) # respawn / أول اتصال
 		reset_physics_interpolation()
 	else:
 		var weight: float = 1.0 - exp(-net_smooth_speed * delta)
-		var new_pos: Vector3 = current.origin.lerp(net_position, weight)
+		var new_pos: Vector3 = current.origin.lerp(target_pos, weight)
 		var new_rot: Quaternion = current.basis.get_rotation_quaternion().slerp(target_rot, weight)
 		global_transform = Transform3D(Basis(new_rot), new_pos)
 	# الـ client مفيش عنده فيزيكس حقيقية للدراجة: نمنع أي سرعة تتراكم

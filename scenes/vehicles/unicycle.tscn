@@ -69,4 +69,4 @@ broadcast = 0
 process = 1
 refresh_rate = 20
 node_path = NodePath("..")
-properties = PackedStringArray("net_position", "net_rotation")
+properties = PackedStringArray("net_position", "net_rotation", "net_velocity")
