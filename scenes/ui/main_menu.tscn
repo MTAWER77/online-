@@ -101,6 +101,11 @@ unique_name_in_owner = true
 layout_mode = 2
 horizontal_alignment = 1
 
+[node name="PingLabel" type="Label" parent="Center/Content/RoomScreen"]
+unique_name_in_owner = true
+layout_mode = 2
+horizontal_alignment = 1
+
 [node name="ReadyButton" type="Button" parent="Center/Content/RoomScreen"]
 unique_name_in_owner = true
 layout_mode = 2

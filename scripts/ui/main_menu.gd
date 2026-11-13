@@ -28,6 +28,7 @@ const READY_KEY: String = "ready"
 @onready var _room_screen: VBoxContainer = %RoomScreen
 @onready var _code_label: Label = %CodeLabel
 @onready var _players_label: Label = %PlayersLabel
+@onready var _ping_label: Label = %PingLabel
 @onready var _ready_button: Button = %ReadyButton
 @onready var _start_button: Button = %StartButton
 @onready var _leave_button: Button = %LeaveButton
@@ -36,6 +37,8 @@ var _connected: bool = false
 var _busy: bool = false: set = _set_busy # في عملية جارية (إنشاء أو دخول)
 var _starting: bool = false
 var _busy_timer: SceneTreeTimer
+var _ping_timer: float = 0.0
+var _pinging: bool = false
 
 
 func _ready() -> void:
@@ -69,6 +72,37 @@ func _ready() -> void:
 		_on_connected()
 	else:
 		GDSync.start_multiplayer()
+
+
+func _process(delta: float) -> void:
+	# في الغرفة: نقيس الـ ping مع اللاعب التاني عشان اللي نته أحسن يعمل Host
+	if not _room_screen.visible or _pinging:
+		return
+	_ping_timer += delta
+	if _ping_timer >= 2.0:
+		_ping_timer = 0.0
+		_measure_ping()
+
+
+func _measure_ping() -> void:
+	var my_id: int = GDSync.get_client_id()
+	var other_id: int = -1
+	for id: int in GDSync.lobby_get_all_clients():
+		if id != my_id:
+			other_id = id
+			break
+	if other_id == -1:
+		_ping_label.text = ""
+		return
+	_pinging = true
+	var seconds: float = await GDSync.get_client_ping(other_id)
+	_pinging = false
+	if not _room_screen.visible:
+		return
+	if seconds < 0.0:
+		_ping_label.text = "Ping: -"
+	else:
+		_ping_label.text = "Ping: %d ms\n(اللي نته أحسن يعمل Host)" % roundi(seconds * 1000.0)
 
 
 func _set_busy(value: bool) -> void:

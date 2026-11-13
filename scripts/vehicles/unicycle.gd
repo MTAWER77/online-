@@ -43,8 +43,8 @@ const WHEEL_RADIUS: float = 0.45
 @export var fall_limit: float = -12.0 # تحت الرقم ده نرجّع الدراجة لمكان البداية
 
 @export_group("Network")
-@export var input_timeout: float = 0.6 # لو البنزين ماوصلش أحدث من كده نصفّره (عشان ما يعلقش)
-@export var heartbeat: float = 0.2 # الـ client بيكرر البنزين كل كام ثانية طول ما هو ضاغط
+@export var input_timeout: float = 0.35 # لو البنزين ماوصلش أحدث من كده نصفّره (عشان ما يعلقش)
+@export var heartbeat: float = 0.1 # الـ client بيكرر البنزين كل كام ثانية طول ما هو ضاغط
 
 @export_group("Visual")
 @export var model_yaw_degrees: float = 0.0 # لو الدراجة ماشية بضهرها غيّرها لـ 180
@@ -75,6 +75,7 @@ var _remote_gas_time: float = -100.0
 # إرسال الـ client
 var _last_sent_gas: float = -1.0
 var _heartbeat_timer: float = 0.0
+var _zero_repeat_time: float = 0.0
 
 # للشكل
 var _last_pos: Vector3
@@ -294,12 +295,16 @@ func _send_client_input(delta: float) -> void:
 	var gas: float = snappedf(Input.get_action_strength(&"move_forward"), 0.1)
 	_heartbeat_timer += delta
 	var changed: bool = not is_equal_approx(gas, _last_sent_gas)
-	if changed or (gas > 0.0 and _heartbeat_timer >= heartbeat):
+	if changed:
+		_zero_repeat_time = 0.4 # لو اتسابت القيمة صفر، نكررها شوية عشان لو ضاعت حزمة
+	_zero_repeat_time = maxf(_zero_repeat_time - delta, 0.0)
+	# unreliable: لو حزمة ضاعت ما بتتعادش (بتعمل تأخير)، والتكرار بيعوّضها
+	if changed or ((gas > 0.0 or _zero_repeat_time > 0.0) and _heartbeat_timer >= heartbeat):
 		_last_sent_gas = gas
 		_heartbeat_timer = 0.0
-		GDSync.call_func_on(GDSync.get_host(), _receive_gas, gas)
+		GDSync.call_func_on_unreliable(GDSync.get_host(), _receive_gas, gas)
 	if Input.is_action_just_pressed(&"jump"):
-		GDSync.call_func_on(GDSync.get_host(), _receive_jump)
+		GDSync.call_func_on(GDSync.get_host(), _receive_jump) # reliable: القفزة مهمة
 
 
 # بتتنفذ عند الـ host بس. الـ host بيتحقق من القيم قبل ما يستخدمها.
