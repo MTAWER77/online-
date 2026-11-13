@@ -4,7 +4,7 @@ extends CanvasLayer
 ## كل لاعب بيستخدم بس الأزرار بتاعة دوره: الـ host دركسيون + Brake، والـ client Gas + Jump (أوفلاين الكل).
 ## الشكل كله في mobile_controls.tscn. السكريبت بس بيترجم اللمس لـ Input actions (multi-touch).
 
-# بيظهر على أجهزة اللمس بس. شغّله true لو عايز تشوفه على الكمبيوتر وتجرّب بالماوس.
+# بيظهر على الموبايل/التابلت بس (بيتشال على الكمبيوتر). شغّله true لو عايز تشوفه على الكمبيوتر وتجرّب بالماوس.
 @export var show_on_desktop: bool = false
 @export var deadzone: float = 0.15
 
@@ -23,10 +23,10 @@ var _active: bool = false
 
 
 func _ready() -> void:
-	_active = show_on_desktop or DisplayServer.is_touchscreen_available()
-	visible = _active
-	set_process_input(_active)
+	_active = show_on_desktop or _is_mobile_device()
 	if not _active:
+		# كمبيوتر: نشيل تحكم الموبايل خالص (حتى لو الشاشة لمس)
+		queue_free()
 		return
 	_buttons[_gas_button] = &"move_forward"
 	_buttons[_brake_button] = &"move_back"
@@ -36,6 +36,12 @@ func _ready() -> void:
 	Input.emulate_mouse_from_touch = false
 	Input.emulate_touch_from_mouse = show_on_desktop
 	_reset_joystick()
+
+
+# موبايل/تابلت فعلًا (أندرويد أو iOS، أو متصفح على واحد منهم)، مش مجرد شاشة لمس على لابتوب
+func _is_mobile_device() -> bool:
+	return OS.has_feature("android") or OS.has_feature("ios") \
+		or OS.has_feature("web_android") or OS.has_feature("web_ios")
 
 
 func _exit_tree() -> void:
