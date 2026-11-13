@@ -1,4 +1,4 @@
-[gd_scene load_steps=15 format=3]
+[gd_scene load_steps=16 format=3]
 
 [ext_resource type="Script" path="res://scripts/vehicles/unicycle_spawner.gd" id="1_spawner"]
 [ext_resource type="PackedScene" path="res://scenes/vehicles/unicycle.tscn" id="2_uni"]
@@ -31,8 +31,6 @@ size = Vector3(2, 2, 2)
 material = SubResource("StandardMaterial3D_orange")
 size = Vector3(2, 2, 2)
 
-[node name="UnicycleTest" type="Node3D"]
-
 [sub_resource type="BoxShape3D" id="BoxShape3D_stair"]
 size = Vector3(8, 0.5, 3)
 
@@ -46,6 +44,8 @@ size = Vector3(10, 1, 10)
 [sub_resource type="BoxMesh" id="BoxMesh_plat"]
 material = SubResource("StandardMaterial3D_grey")
 size = Vector3(10, 1, 10)
+
+[node name="UnicycleTest" type="Node3D"]
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 0.7071, 0.7071, 0, -0.7071, 0.7071, 0, 8, 0)
