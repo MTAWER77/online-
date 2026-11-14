@@ -1,0 +1,59 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://scripts/levels/level_01.gd" id="1_level"]
+[ext_resource type="Script" path="res://scripts/levels/sketch_builder.gd" id="2_builder"]
+[ext_resource type="Script" path="res://scripts/vehicles/unicycle_spawner.gd" id="3_spawner"]
+[ext_resource type="PackedScene" path="res://scenes/vehicles/unicycle.tscn" id="4_uni"]
+[ext_resource type="PackedScene" path="res://scenes/ui/mobile_controls.tscn" id="5_mobile"]
+[ext_resource type="PackedScene" path="res://scenes/ui/stats_overlay.tscn" id="6_stats"]
+
+[node name="SketchLevel" type="Node3D"]
+script = ExtResource("1_level")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.7071, 0.7071, 0, -0.7071, 0.7071, 0, 40, 0)
+shadow_enabled = true
+directional_shadow_max_distance = 150.0
+
+[node name="Builder" type="Node3D" parent="."]
+script = ExtResource("2_builder")
+
+[node name="UnicycleSpawner" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 0)
+script = ExtResource("3_spawner")
+unicycle_scene = ExtResource("4_uni")
+
+[node name="HUD" type="CanvasLayer" parent="."]
+
+[node name="TimerLabel" type="Label" parent="HUD"]
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -80.0
+offset_top = 12.0
+offset_right = 80.0
+offset_bottom = 45.0
+grow_horizontal = 2
+theme_override_font_sizes/font_size = 24
+text = "00:00.0"
+horizontal_alignment = 1
+
+[node name="ResultLabel" type="Label" parent="HUD"]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -220.0
+offset_top = -50.0
+offset_right = 220.0
+offset_bottom = 50.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_font_sizes/font_size = 32
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="MobileControls" parent="." instance=ExtResource("5_mobile")]
+
+[node name="StatsOverlay" parent="." instance=ExtResource("6_stats")]
