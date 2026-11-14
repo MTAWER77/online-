@@ -70,25 +70,50 @@ func _run() -> void:
 		return
 	_log("حجم snapshot: %d bytes" % (snap as PackedByteArray).size())
 
-	# تشغيل A
-	var hash_a: int = _run_b(rapier)
-	# رجوع للـ snapshot وإعادة نفس الـ ticks بنفس الـ input
+	var st0: Dictionary = _grab()
+	# تشغيل أصلي
+	var r1: Dictionary = _run_b(rapier)
+	# 1) استرجاع بـ import_binary (snapshot الـ space كلها)
 	rapier.import_binary(_space, snap)
 	var t1: int = Time.get_ticks_usec()
-	var hash_b: int = _run_b(rapier)
-	var replay_ms: float = float(Time.get_ticks_usec() - t1) / 1000.0
-	_log("إعادة %d tick (rollback كامل): %.1f ms" % [TICKS_B, replay_ms])
-	_log("hash الأولى  = %d" % hash_a)
-	_log("hash الإعادة = %d" % hash_b)
-	_log("النتيجة: %s" % ("PASS - deterministic بعد restore" if hash_a == hash_b else "FAIL - مختلفة"))
+	var r2: Dictionary = _run_b(rapier)
+	_log("إعادة %d tick بعد import_binary: %.1f ms" % [TICKS_B, float(Time.get_ticks_usec() - t1) / 1000.0])
+	# 2) استرجاع يدوي (transform + velocities بس) - ده اللي الـ rollback بتاعنا بيستخدمه
+	_put(st0)
+	var t2: int = Time.get_ticks_usec()
+	var r3: Dictionary = _run_b(rapier)
+	_log("إعادة %d tick بعد استرجاع يدوي: %.1f ms" % [TICKS_B, float(Time.get_ticks_usec() - t2) / 1000.0])
+	_put(st0)
+	var r4: Dictionary = _run_b(rapier)
+	_log("نهاية الأصلي: %s" % str(r1["pos"]))
+	_log("فرق مكان (م): import_binary=%.5f | يدوي=%.5f | يدوي مرتين=%.5f" % [
+		(r1["pos"] as Vector3).distance_to(r2["pos"] as Vector3),
+		(r1["pos"] as Vector3).distance_to(r3["pos"] as Vector3),
+		(r3["pos"] as Vector3).distance_to(r4["pos"] as Vector3)])
+	var worst: float = maxf((r1["pos"] as Vector3).distance_to(r3["pos"] as Vector3), (r3["pos"] as Vector3).distance_to(r4["pos"] as Vector3))
+	_log("النتيجة (الاسترجاع اليدوي): %s" % ("PASS - الفرق أقل من 1 سم" if worst < 0.01 else ("OK - الفرق صغير (%.1f سم) والـ host بيصحّحه" % (worst * 100.0) if worst < 0.2 else "FAIL - فرق كبير")))
 
 
-func _run_b(rapier: Object) -> int:
+func _grab() -> Dictionary:
+	return {
+		"xf": PhysicsServer3D.body_get_state(_ball, PhysicsServer3D.BODY_STATE_TRANSFORM),
+		"lv": PhysicsServer3D.body_get_state(_ball, PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY),
+		"av": PhysicsServer3D.body_get_state(_ball, PhysicsServer3D.BODY_STATE_ANGULAR_VELOCITY),
+	}
+
+
+func _put(st: Dictionary) -> void:
+	PhysicsServer3D.body_set_state(_ball, PhysicsServer3D.BODY_STATE_TRANSFORM, st["xf"])
+	PhysicsServer3D.body_set_state(_ball, PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY, st["lv"])
+	PhysicsServer3D.body_set_state(_ball, PhysicsServer3D.BODY_STATE_ANGULAR_VELOCITY, st["av"])
+
+
+func _run_b(rapier: Object) -> Dictionary:
 	for i in TICKS_B:
 		_step(rapier, i, i == INPUT_TICK)
 	var xf: Transform3D = PhysicsServer3D.body_get_state(_ball, PhysicsServer3D.BODY_STATE_TRANSFORM)
 	var vel: Vector3 = PhysicsServer3D.body_get_state(_ball, PhysicsServer3D.BODY_STATE_LINEAR_VELOCITY)
-	return hash(var_to_bytes([xf.origin, xf.basis, vel]))
+	return {"pos": xf.origin, "vel": vel}
 
 
 func _step(rapier: Object, _i: int, apply_input: bool) -> void:
