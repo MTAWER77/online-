@@ -11,7 +11,7 @@ extends RigidBody3D
 ## recover_time ثانية وبعدين بترجع واقفة. تصادم بسرعة عالية = تشقلب.
 ## الـ host هو اللي بيحرّك الدراجة (authoritative). الـ client بيبعت المدخلات بس (البنزين والقفز)
 ## والـ host بيتحقق منها (نوع/مدى/تردد). عمره ما بيبعت مكان أو حالة.
-## الـ host هو المرجع (authoritative) وبيبعت حالته (snapshots) كل 0.033s. الـ client بيشغّل نفس الفيزيكس محليًا
+## الـ host هو المرجع (authoritative) وبيبعت حالته (snapshots) كل 0.016s (~60/ث). الـ client بيشغّل نفس الفيزيكس محليًا
 ## (توقّع/prediction): بنزينه وقفزته فورًا، ودركسيون وفرامل الـ host من آخر snapshot، ويتصحّح ناحية حالة الـ host بالتدريج.
 ## والـ client بيحتفظ بيها كهدف وبيقرّب منه بـ lerp في _physics_process (من غير ما يقفز).
 ## الـ global_transform نفسه مش بيتزامن. و Physics Interpolation شغال في المشروع.
@@ -51,9 +51,9 @@ const WHEEL_RADIUS: float = 0.45
 
 @export_group("Network")
 @export var input_timeout: float = 0.35 # لو البنزين ماوصلش أحدث من كده نصفّره (عشان ما يعلقش)
-@export var heartbeat: float = 0.1 # الـ client بيكرر البنزين كل كام ثانية طول ما هو ضاغط
-@export var min_send_interval: float = 0.05 # أقل فاصل بين إرسالتين بنزين من الـ client (20/ث كحد أقصى)
-@export var snapshot_interval: float = 0.033 # الـ host بيبعت حالة الدراجة كل كام ثانية (~30/ث)
+@export var heartbeat: float = 0.04 # الـ client بيكرر البنزين كل كام ثانية طول ما هو ضاغط (~25/ث)
+@export var min_send_interval: float = 0.04 # أقل فاصل بين إرسالتين بنزين من الـ client (25/ث كحد أقصى)
+@export var snapshot_interval: float = 0.016 # الـ host بيبعت حالة الدراجة كل كام ثانية (~60/ث)
 @export var max_extrapolation: float = 0.25 # أقصى مدة بنتنبأ فيها بمكان الـ host من آخر حزمة (ثانية)
 ## [FIX-1] خُفّضت من 6.0 إلى 3.0: التصحيح كان حادًا جدًا عند وصول كل snapshot
 ## فكان بيخلق قفزة ظاهرة على شاشة الـ client. 3.0 بتعمل تصحيح ناعم خلال ~0.3s بدل ~0.1s
@@ -64,7 +64,7 @@ const WHEEL_RADIUS: float = 0.45
 ## 3.5m أقرب للواقع: لو الـ client بعد 3.5m عن الـ host = فيه خلل، ننقل فورًا ومنكملش التصحيح البطيء
 @export var net_snap_distance: float = 3.5
 @export_subgroup("Server rate limit")
-@export var min_gas_interval: float = 0.02 # الـ host يتجاهل أي بنزين أسرع من كده (الـ client الطبيعي 0.05)
+@export var min_gas_interval: float = 0.02 # الـ host يتجاهل أي بنزين أسرع من كده (الـ client الطبيعي 0.04)
 @export var min_jump_interval: float = 0.1 # الـ host يتجاهل أي قفزة أسرع من كده
 
 ## Rollback (بيشتغل أونلاين بس لما Physics Engine = Rapier3D، غير كده الـ Network القديم اللي فوق هو اللي بيشتغل)
