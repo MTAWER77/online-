@@ -1,31 +1,31 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene format=3 uid="uid://8v7s8a27ibae"]
 
-[ext_resource type="Script" path="res://scripts/levels/level_01.gd" id="1_level"]
-[ext_resource type="Script" path="res://scripts/levels/sketch_builder.gd" id="2_builder"]
-[ext_resource type="Script" path="res://scripts/vehicles/unicycle_spawner.gd" id="3_spawner"]
+[ext_resource type="Script" uid="uid://nwwp0q51wjg1" path="res://scripts/levels/level_01.gd" id="1_level"]
+[ext_resource type="Script" uid="uid://bl14fmx36mh2h" path="res://scripts/levels/sketch_builder.gd" id="2_builder"]
+[ext_resource type="Script" uid="uid://ly8v5dkvb2va" path="res://scripts/vehicles/unicycle_spawner.gd" id="3_spawner"]
 [ext_resource type="PackedScene" path="res://scenes/vehicles/unicycle.tscn" id="4_uni"]
 [ext_resource type="PackedScene" path="res://scenes/ui/mobile_controls.tscn" id="5_mobile"]
 [ext_resource type="PackedScene" path="res://scenes/ui/stats_overlay.tscn" id="6_stats"]
 
-[node name="SketchLevel" type="Node3D"]
+[node name="SketchLevel" type="Node3D" unique_id=1556395970]
 script = ExtResource("1_level")
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=1269373907]
 transform = Transform3D(1, 0, 0, 0, 0.7071, 0.7071, 0, -0.7071, 0.7071, 0, 40, 0)
 shadow_enabled = true
 directional_shadow_max_distance = 150.0
 
-[node name="Builder" type="Node3D" parent="."]
+[node name="Builder" type="Node3D" parent="." unique_id=1541397880]
 script = ExtResource("2_builder")
 
-[node name="UnicycleSpawner" type="Node3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.1, 0)
+[node name="UnicycleSpawner" type="Node3D" parent="." unique_id=261968081]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.0169163, -13.629833)
 script = ExtResource("3_spawner")
 unicycle_scene = ExtResource("4_uni")
 
-[node name="HUD" type="CanvasLayer" parent="."]
+[node name="HUD" type="CanvasLayer" parent="." unique_id=966782409]
 
-[node name="TimerLabel" type="Label" parent="HUD"]
+[node name="TimerLabel" type="Label" parent="HUD" unique_id=53194839]
 anchors_preset = 5
 anchor_left = 0.5
 anchor_right = 0.5
@@ -38,7 +38,7 @@ theme_override_font_sizes/font_size = 24
 text = "00:00.0"
 horizontal_alignment = 1
 
-[node name="ResultLabel" type="Label" parent="HUD"]
+[node name="ResultLabel" type="Label" parent="HUD" unique_id=723122190]
 anchors_preset = 8
 anchor_left = 0.5
 anchor_top = 0.5
@@ -54,6 +54,6 @@ theme_override_font_sizes/font_size = 32
 horizontal_alignment = 1
 vertical_alignment = 1
 
-[node name="MobileControls" parent="." instance=ExtResource("5_mobile")]
+[node name="MobileControls" parent="." unique_id=477981550 instance=ExtResource("5_mobile")]
 
-[node name="StatsOverlay" parent="." instance=ExtResource("6_stats")]
+[node name="StatsOverlay" parent="." unique_id=1628648501 instance=ExtResource("6_stats")]
