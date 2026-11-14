@@ -917,7 +917,15 @@ func _rb_do_rollback() -> void:
 		_rb_run_tick(t, true)
 	var jump_err: Vector3 = before - _ds.transform.origin
 	_rb_corr_rot = (_rb_corr_rot * before_q * _ds.transform.basis.get_rotation_quaternion().inverse()).normalized()
-	_rb_corr = Vector3.ZERO if (_rb_corr + jump_err).length() > 3.0 else _rb_corr + jump_err
+	if jump_err.length() > 0.4:
+		DebugLog.say("RB", "قفزة تصحيح %.2fm | عمق=%d tick | y قبل=%.2f بعد=%.2f" % [
+			jump_err.length(), _tick - from, before.y, _ds.transform.origin.y])
+	# الشكل بس: لو القفزة كبيرة نعرضها فورًا (أأمن من الانزلاق جوه الأرض)، وما ننزلش تحت الجسم الحقيقي أكتر من 25سم
+	_rb_corr += jump_err
+	if _rb_corr.length() > 1.0:
+		_rb_corr = Vector3.ZERO
+		_rb_corr_rot = Quaternion.IDENTITY
+	_rb_corr.y = maxf(_rb_corr.y, -0.25)
 	_rb_stat_rollbacks += 1
 	_rb_stat_resim_ticks += _tick - from
 
@@ -1032,6 +1040,8 @@ func _rb_apply_auth() -> void:
 		var dv: float = Vector3(auth[7] - mine[7], auth[8] - mine[8], auth[9] - mine[9]).length()
 		_err_sum += dp
 		_err_n += 1
+		if dp > 0.3:
+			DebugLog.say("RB", "تصحيح كبير من الـ host: %.2fm (tick %d)" % [dp, t])
 		if dp > rb_auth_tolerance or dv > 0.5:
 			_rb_states[t % RB_HIST] = auth
 			_rb_mark(t)
