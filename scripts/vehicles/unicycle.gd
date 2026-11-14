@@ -75,7 +75,8 @@ const WHEEL_RADIUS: float = 0.45
 @export var rb_auth_every: int = 30 # الـ host يبعت الحالة المؤكدة كل كام tick (4/ث)
 @export var rb_auth_tolerance: float = 0.03 # فرق مكان (متر) أقل منه الـ client يتجاهله
 @export var rb_remote_timeout_ticks: int = 42 # لو مدخلات الطرف التاني وقفت، نصفّرها (0.35ث)
-@export var rb_correction_decay: float = 10.0 # سرعة اختفاء قفزة التصحيح من الشاشة (أعلى = أسرع)
+@export var rb_correction_decay: float = 5.0 # سرعة اختفاء قفزة التصحيح من الشاشة (أعلى = أسرع، أقل = أنعم)
+@export var rb_input_delay: int = 6 # تأخير مدخلاتي المحلية (tick). بيقلل الـ rollbacks والقفزات. 6 = 50ms
 
 @export_group("Visual")
 @export var model_yaw_degrees: float = 0.0 # لو الدراجة ماشية بضهرها غيّرها لـ 180
@@ -156,6 +157,7 @@ var _rb_from: int = -1 # أقدم tick محتاج إعادة محاكاة (-1 = 
 var _rb_events: Dictionary = {} # tick -> [origin, yaw] (respawn / recover بقرار الـ host)
 var _rb_auth_pending: Dictionary = {} # tick -> PackedFloat64Array (حالة الـ host المؤكدة)
 var _rb_corr: Vector3 = Vector3.ZERO # قفزة التصحيح المخفية بتتلاشى على الشاشة
+var _rb_corr_rot: Quaternion = Quaternion.IDENTITY
 var _rb_resim: bool = false
 var _rb_teleported: bool = false
 var _rb_in_count: int = 0
@@ -717,8 +719,11 @@ func _rb_process(delta: float) -> void:
 	_rb_live_tick()
 	_rb_send_inputs()
 	_rb_send_auth()
-	_rb_corr = _rb_corr.lerp(Vector3.ZERO, 1.0 - exp(-rb_correction_decay * delta))
-	_visual.position = global_transform.basis.inverse() * _rb_corr
+	var k: float = 1.0 - exp(-rb_correction_decay * delta)
+	_rb_corr = _rb_corr.lerp(Vector3.ZERO, k)
+	_rb_corr_rot = _rb_corr_rot.slerp(Quaternion.IDENTITY, k)
+	var bq: Quaternion = global_transform.basis.get_rotation_quaternion()
+	_visual.transform = Transform3D(Basis(bq.inverse() * _rb_corr_rot * bq), global_transform.basis.inverse() * _rb_corr)
 	_rb_log_stats(delta)
 
 
@@ -749,6 +754,9 @@ func _rb_try_start() -> void:
 func _rb_begin() -> void:
 	_rb_started = true
 	_tick = 0
+	for k in rb_input_delay: # أول ticks قبل ما المدخلات المتأخرة توصل
+		_rb_local[k % RB_HIST] = Vector4.ZERO
+		_rb_local_tag[k % RB_HIST] = k
 	DebugLog.say("RB", "بدأت المحاكاة (tick 0)")
 
 
@@ -765,9 +773,9 @@ func _rx_go() -> void:
 # ---- tick واحد ----
 func _rb_sample_local() -> Vector4:
 	if _role == ControlRole.STEER_BRAKE:
-		return Vector4(Input.get_axis(&"move_right", &"move_left"),
+		return Vector4(snappedf(Input.get_axis(&"move_right", &"move_left"), 0.1),
 			1.0 if Input.is_action_pressed(&"move_back") else 0.0, 0.0, 0.0)
-	return Vector4(0.0, 0.0, snappedf(Input.get_action_strength(&"move_forward"), 0.01),
+	return Vector4(0.0, 0.0, snappedf(Input.get_action_strength(&"move_forward"), 0.1),
 		1.0 if Input.is_action_just_pressed(&"jump") else 0.0)
 
 
@@ -784,9 +792,9 @@ func _rb_remote_for(t: int) -> Vector4:
 
 func _rb_live_tick() -> void:
 	var t: int = _tick
-	var idx: int = t % RB_HIST
-	_rb_local[idx] = _rb_sample_local()
-	_rb_local_tag[idx] = t
+	var fut: int = t + rb_input_delay
+	_rb_local[fut % RB_HIST] = _rb_sample_local() # بتتطبّق بعد rb_input_delay tick
+	_rb_local_tag[fut % RB_HIST] = fut
 	_rb_save_state(t)
 	_rb_run_tick(t, false)
 	_tick += 1
@@ -835,6 +843,7 @@ func _rb_apply_event(origin: Vector3, yaw: float, resim: bool) -> void:
 	if not resim:
 		_cam_yaw = yaw
 		_rb_corr = Vector3.ZERO
+		_rb_corr_rot = Quaternion.IDENTITY
 		_rb_teleported = true
 		DebugLog.say("RB", "reset event عند %s" % origin)
 
@@ -901,11 +910,13 @@ func _rb_do_rollback() -> void:
 	if from >= _tick or from < 0 or _rb_state_tag[from % RB_HIST] != from:
 		return
 	var before: Vector3 = _ds.transform.origin
+	var before_q: Quaternion = _ds.transform.basis.get_rotation_quaternion()
 	_rb_load_state(_rb_states[from % RB_HIST] as PackedFloat64Array)
 	for t in range(from, _tick):
 		_rb_save_state(t)
 		_rb_run_tick(t, true)
 	var jump_err: Vector3 = before - _ds.transform.origin
+	_rb_corr_rot = (_rb_corr_rot * before_q * _ds.transform.basis.get_rotation_quaternion().inverse()).normalized()
 	_rb_corr = Vector3.ZERO if (_rb_corr + jump_err).length() > 3.0 else _rb_corr + jump_err
 	_rb_stat_rollbacks += 1
 	_rb_stat_resim_ticks += _tick - from
@@ -913,8 +924,8 @@ func _rb_do_rollback() -> void:
 
 # ---- نقل المدخلات ----
 func _rb_send_inputs() -> void:
-	var t: int = _tick - 1
-	if t < 0 or t % rb_send_every != 0:
+	var t: int = _tick - 1 + rb_input_delay
+	if t < 0 or (t - rb_input_delay) % rb_send_every != 0:
 		return
 	var peer: int = _find_peer()
 	if peer < 0:
