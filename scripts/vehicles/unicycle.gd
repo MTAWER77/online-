@@ -160,6 +160,8 @@ var _rb_corr: Vector3 = Vector3.ZERO # قفزة التصحيح المخفية ب
 var _rb_corr_rot: Quaternion = Quaternion.IDENTITY
 var _rb_resim: bool = false
 var _rb_teleported: bool = false
+var _rb_had_peer: bool = false
+var _rb_peer_lost_ms: int = 0 # 0 = الطرف التاني موجود
 var _rb_in_count: int = 0
 var _rb_in_window_start_ms: int = 0
 var _rb_stat_rollbacks: int = 0
@@ -647,6 +649,8 @@ func _update_hud() -> void:
 	_hud_label.text = "%s\n%d km/h" % [role_text, int(_vis_speed * 3.6)]
 	if _rb:
 		_hud_label.text += "\nNET: ROLLBACK" + ("" if _rb_started else " (بنتزامن...)")
+		if _rb_peer_lost_ms > 0:
+			_hud_label.text += "\nاللاعب التاني خرج - رجوع للقائمة..."
 
 
 # =====================================================================
@@ -714,6 +718,7 @@ func _rb_process(delta: float) -> void:
 	if not _rb_started:
 		_rb_try_start()
 		return
+	_rb_check_peer()
 	_rb_apply_auth()
 	_rb_do_rollback()
 	_rb_live_tick()
@@ -760,7 +765,31 @@ func _rb_begin() -> void:
 	DebugLog.say("RB", "بدأت المحاكاة (tick 0)")
 
 
+## أمان: بنقبل الرسائل من لاعب جوه الـ lobby بس (مش من غريب بعت لنفس الـ client id)
+func _rb_sender_ok() -> bool:
+	var sender: int = GDSync.get_sender_id()
+	return sender < 0 or sender == GDSync.get_client_id() or sender in GDSync.lobby_get_all_clients()
+
+
+## لو الطرف التاني خرج أكتر من 3 ثواني نرجع للقائمة بدل ما اللعبة تفضل متجمّدة
+func _rb_check_peer() -> void:
+	var now: int = Time.get_ticks_msec()
+	if _find_peer() >= 0:
+		_rb_had_peer = true
+		_rb_peer_lost_ms = 0
+		return
+	if not _rb_had_peer:
+		return
+	if _rb_peer_lost_ms == 0:
+		_rb_peer_lost_ms = now
+		DebugLog.say("RB", "الطرف التاني خرج")
+	elif now - _rb_peer_lost_ms > 3000:
+		_leave_to_menu()
+
+
 func _rx_hello() -> void:
+	if not _rb_sender_ok():
+		return
 	if GDSync.is_host():
 		_rb_peer_hello = true
 
@@ -961,7 +990,7 @@ func _rb_rate_ok() -> bool:
 
 
 func _rx_inputs(first: int, data: PackedFloat32Array) -> void:
-	if not _rb or not _rb_rate_ok():
+	if not _rb or not _rb_sender_ok() or not _rb_rate_ok():
 		return
 	if first < 0 or data.size() < 2 or data.size() > 128 or data.size() % 2 != 0:
 		return
