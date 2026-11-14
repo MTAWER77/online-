@@ -658,10 +658,10 @@ func _rb_setup() -> void:
 	if not _online:
 		return
 	var engine_name: String = str(ProjectSettings.get_setting("physics/3d/physics_engine", "")).to_lower()
-	if not engine_name.contains("rapier") or not Engine.has_singleton("RapierPhysicsServer3D"):
-		DebugLog.say("RB", "Rollback مقفول (physics_engine=%s) - الـ Network القديم شغال" % engine_name)
+	_rapier = find_rapier()
+	if not engine_name.contains("rapier") or _rapier == null:
+		DebugLog.say("RB", "Rollback مقفول (physics_engine=%s rapier=%s) - الـ Network القديم شغال" % [engine_name, _rapier])
 		return
-	_rapier = Engine.get_singleton("RapierPhysicsServer3D")
 	_ds = PhysicsServer3D.body_get_direct_state(get_rid())
 	if _ds == null:
 		DebugLog.say("RB", "مقدرتش أجيب direct state - الـ Network القديم شغال")
@@ -688,6 +688,19 @@ func _rb_setup() -> void:
 	_rb_in_window_start_ms = _rb_wait_start_ms
 	_rb = true
 	DebugLog.say("RB", "Rollback شغال: tick=%.1fHz role=%d" % [1.0 / _dt, _role])
+
+
+## بيدوّر على سيرفر Rapier بأكتر من طريقة (اسم الـ singleton ممكن يختلف حسب النسخة)
+static func find_rapier() -> Object:
+	if Engine.has_singleton("RapierPhysicsServer3D"):
+		return Engine.get_singleton("RapierPhysicsServer3D")
+	for n: String in Engine.get_singleton_list():
+		if n.to_lower().contains("rapier") and n.contains("3D"):
+			return Engine.get_singleton(n)
+	var ps: Object = PhysicsServer3D
+	if ps != null and ps.has_method("space_step") and ps.has_method("export_binary"):
+		return ps
+	return null
 
 
 func _exit_tree() -> void:

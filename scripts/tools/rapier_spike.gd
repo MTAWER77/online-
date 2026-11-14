@@ -21,6 +21,18 @@ func _ready() -> void:
 	_run()
 
 
+static func find_rapier() -> Object:
+	if Engine.has_singleton("RapierPhysicsServer3D"):
+		return Engine.get_singleton("RapierPhysicsServer3D")
+	for n: String in Engine.get_singleton_list():
+		if n.to_lower().contains("rapier") and n.contains("3D"):
+			return Engine.get_singleton(n)
+	var ps: Object = PhysicsServer3D
+	if ps != null and ps.has_method("space_step") and ps.has_method("export_binary"):
+		return ps
+	return null
+
+
 func _log(msg: String) -> void:
 	print("[RapierSpike] ", msg)
 	_out.append(msg)
@@ -30,10 +42,18 @@ func _log(msg: String) -> void:
 func _run() -> void:
 	var engine_name: String = str(ProjectSettings.get_setting("physics/3d/physics_engine", "?"))
 	_log("physics_engine setting = %s" % engine_name)
-	if not Engine.has_singleton("RapierPhysicsServer3D"):
-		_log("FAIL: RapierPhysicsServer3D singleton مش موجود (الإضافة مش متحمّلة أو الـ engine مش Rapier)")
+	var names: Array[String] = []
+	for n: String in Engine.get_singleton_list():
+		if n.to_lower().contains("rapier") or n.contains("Physics"):
+			names.append(n)
+	_log("singletons: %s" % str(names))
+	_log("ClassDB RapierPhysicsServer3D: %s | PhysicsServer3D.has space_step: %s" % [
+		ClassDB.class_exists("RapierPhysicsServer3D"), PhysicsServer3D.has_method("space_step")])
+	var rapier: Object = find_rapier()
+	if rapier == null:
+		_log("FAIL: مش لاقي سيرفر Rapier بأي طريقة (شوف السطرين اللي فوق وابعتهم)")
 		return
-	var rapier: Object = Engine.get_singleton("RapierPhysicsServer3D")
+	_log("rapier object = %s" % rapier)
 	_space = get_viewport().world_3d.space
 	PhysicsServer3D.space_set_active(_space, false)
 	_build_world()
