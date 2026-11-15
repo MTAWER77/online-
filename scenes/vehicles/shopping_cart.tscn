@@ -4,7 +4,7 @@
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_cart"]
 friction = 0.0
-bounce = 0.05
+bounce = 0.15
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_basket"]
 size = Vector3(0.58, 0.43, 0.83)
@@ -26,6 +26,22 @@ continuous_cd = true
 linear_damp = 0.05
 angular_damp = 2.0
 script = ExtResource("1_cart")
+max_speed = 15.0
+acceleration = 7.0
+brake_decel = 16.0
+coast_drag = 0.4
+slope_gravity = 1.3
+gas_response = 4.0
+brake_response = 8.0
+turn_rate = 2.3
+steer_response = 5.0
+yaw_response = 7.0
+grip = 2.8
+roll_lean = 0.022
+max_lean = 0.42
+lean_kp = 36.0
+lean_kd = 7.0
+jump_velocity = 8.0
 
 [node name="BasketShape" type="CollisionShape3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.715, -0.085)
@@ -56,7 +72,7 @@ shape = SubResource("SphereShape3D_wheel")
 [node name="CameraRig" type="Node3D" parent="."]
 
 [node name="Camera3D" type="Camera3D" parent="CameraRig"]
-transform = Transform3D(1, 0, 0, 0, 0.9848, 0.1736, 0, -0.1736, 0.9848, 0, 1.2, 3.6)
+transform = Transform3D(1, 0, 0, 0, 0.9848, 0.1736, 0, -0.1736, 0.9848, 0, 0.8, 2.4)
 current = true
 
 [node name="HUD" type="CanvasLayer" parent="."]
