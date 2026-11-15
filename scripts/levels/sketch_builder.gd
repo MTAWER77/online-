@@ -1,20 +1,24 @@
 extends Node3D
 ## scripts/levels/sketch_builder.gd
 ## ماب "الرسمة" (Prototype): بتتبني بالكود من بلوكات بيضا بس.
-## الدراجة بتبدأ ماشية ناحية -Z. كل الأرقام موجودة في دوال _build_* تحت، غيّر فيها براحتك.
-## ملحوظة: البلاتفورمات المتحركة حاليًا مش بتشيل الدراجة معاها أفقيًا (الدراجة بتكتب سرعتها بنفسها).
+## العربية بتبدأ ماشية ناحية -Z. كل الأرقام موجودة في دوال _build_* تحت، غيّر فيها براحتك.
+## الحركة (بلاتفورمات/عوارض) بتتحسب من NetClock، فبتبان بنفس المكان عند الـ host والـ client.
+## البلاتفورمات المتحركة بتشيل العربية معاها (meta "vel" بتقراها العربية).
 
 const CHECKPOINT_SCRIPT := preload("res://scripts/levels/checkpoint.gd")
 const FINISH_SCRIPT := preload("res://scripts/levels/finish_line.gd")
+const NetClock = preload("res://scripts/multiplayer/net_clock.gd")
 
 const ROAD_Y: float = 9.8 # ارتفاع البلازا والطريق
 const ROAD_W: float = 8.0 # عرض الطريق
 const FADE_DELAY: float = 0.6 # البلاطة بتختفي بعد ما تتلمس بكام ثانية
 const FADE_TIME: float = 3.0 # وبتفضل مختفية كام ثانية
-const BOUNCE_POWER: float = 11.0 # قوة القفازة (سرعة طلوع)
+const BOUNCE_POWER: float = 20.0 # قوة القفازة (سرعة طلوع)
 
 var _mat: StandardMaterial3D
 var _cp_count: int = 0
+var _movers: Array = []
+var _spinners: Array = []
 
 
 func _ready() -> void:
@@ -30,6 +34,22 @@ func _ready() -> void:
 	_build_bus_plaza()
 	_build_road()
 	_build_tube_and_finish()
+
+
+# كل الحركة دالة في الوقت المشترك: نفس الشكل عند الاتنين
+func _physics_process(delta: float) -> void:
+	var t: float = NetClock.world_time()
+	for m in _movers:
+		var d: Dictionary = m
+		var body := d["body"] as Node3D
+		var prev: Vector3 = body.global_position
+		body.position = (d["base"] as Vector3) + (d["axis"] as Vector3) * float(d["dist"]) \
+			* sin(TAU * t / float(d["period"]))
+		body.set_meta("vel", (body.global_position - prev) / delta)
+	for s in _spinners:
+		var d: Dictionary = s
+		var body := d["body"] as Node3D
+		body.rotation.y = fposmod(float(d["dir"]) * TAU * t / float(d["period"]), TAU)
 
 
 # ---------------------------------------------------------------- الأقسام
@@ -51,11 +71,11 @@ func _build_floating_platforms() -> void:
 	_box(self, Vector3(-2, -0.5, -71), Vector3(8, 1, 6))
 
 
-# 3) المنحدر المائل + جزيرة فيها قفازة بترمي الدراجة لجزيرة بعيدة
+# 3) المنحدر المائل + جزيرة فيها قفازة بترمي العربية لجزيرة بعيدة
 func _build_ramp_and_bounce() -> void:
 	_box(self, Vector3(0, 1.41, -91.94), Vector3(10, 1, 22), Vector3(10, 0, 0))
 	_box(self, Vector3(0, 3.3, -115.8), Vector3(20, 1, 26))
-	_bounce_pad(self, Vector3(0, 3.8, -122), 3.0)
+	_bounce_pad(self, Vector3(0, 3.8, -126), 3.0)
 	_box(self, Vector3(0, 3.3, -168.8), Vector3(24, 1, 36))
 	_checkpoint(self, Vector3(0, 3.8, -156), 20.0)
 
@@ -153,9 +173,10 @@ func _road_arc(center: Vector3, radius: float, a0_deg: float, a1_deg: float, ste
 		prev = p
 
 
+# مطبّات واطية (7 سم) عشان عجل العربية يعدّيها وتهتز، مش تقف قدامها
 func _rumble(sec: Node3D, z_from: float, count: int) -> void:
 	for k in count:
-		_box(sec, Vector3(0, 0.07, z_from - k * 1.6), Vector3(ROAD_W - 0.4, 0.14, 0.7))
+		_box(sec, Vector3(0, 0.035, z_from - k * 1.6), Vector3(ROAD_W - 0.4, 0.07, 0.7))
 
 
 func _hazard_block(sec: Node3D, z: float) -> void:
@@ -222,11 +243,14 @@ func _bounce_pad(parent: Node3D, pos: Vector3, radius: float) -> void:
 	area.body_entered.connect(_on_bounce)
 
 
+# الـ host بس هو اللي بيطلّع العربية (الـ client بيشوفها من الـ snapshots)
 func _on_bounce(body: Node3D) -> void:
 	var rb := body as RigidBody3D
 	if rb == null or not rb.is_in_group("unicycle"):
 		return
-	rb.set("_no_ground_timer", 0.3) # عشان كنترول الدراجة ما يمسحش الطلوع
+	if not bool(rb.get("_authoritative")):
+		return
+	rb.set("_no_ground_timer", 0.3) # عشان كنترول العربية ما يمسحش الطلوع
 	var v: Vector3 = rb.linear_velocity
 	v.y = BOUNCE_POWER
 	rb.linear_velocity = v
@@ -296,23 +320,14 @@ func _finish(parent: Node3D, pos: Vector3, width: float = 8.0) -> void:
 	parent.add_child(f)
 
 
-# ---------------------------------------------------------------- حركة
+# ---------------------------------------------------------------- حركة (تتحسب في _physics_process من NetClock)
 
 func _slide(body: Node3D, axis: Vector3, dist: float, period: float) -> void:
-	var start: Vector3 = body.position
-	var tw: Tween = body.create_tween().set_loops()
-	tw.set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
-	tw.set_trans(Tween.TRANS_SINE)
-	tw.set_ease(Tween.EASE_IN_OUT)
-	tw.tween_property(body, "position", start + axis * dist, period * 0.5).from(start - axis * dist)
-	tw.tween_property(body, "position", start - axis * dist, period * 0.5)
+	_movers.append({"body": body, "base": body.position, "axis": axis, "dist": dist, "period": period})
 
 
 func _spin(body: Node3D, period: float, clockwise: bool) -> void:
-	var tw: Tween = body.create_tween().set_loops()
-	tw.set_process_mode(Tween.TWEEN_PROCESS_PHYSICS)
-	var target: float = -TAU if clockwise else TAU
-	tw.tween_property(body, "rotation:y", target, period).from(0.0)
+	_spinners.append({"body": body, "dir": -1.0 if clockwise else 1.0, "period": period})
 
 
 # ---------------------------------------------------------------- بلوكات
@@ -339,7 +354,7 @@ func _deco(parent: Node, pos: Vector3, size: Vector3) -> MeshInstance3D:
 	return mesh
 
 
-# بلوك أبيض بيتحرك بالكود (بيزق الدراجة)
+# بلوك أبيض بيتحرك بالكود (بيزق العربية ويشيلها)
 func _mover(parent: Node, pos: Vector3, size: Vector3) -> AnimatableBody3D:
 	var body := AnimatableBody3D.new()
 	body.position = pos
