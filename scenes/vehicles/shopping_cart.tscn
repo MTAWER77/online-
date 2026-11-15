@@ -1,13 +1,13 @@
 [gd_scene load_steps=6 format=3]
 
-[ext_resource type="Script" path="res://scripts/vehicles/shopping_cart.gd" id="1_cart"]
+[ext_resource type="Script" path="res://scripts/vehicles/shopping_cart_custom.gd" id="1_cart"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_cart"]
 friction = 0.0
 bounce = 0.05
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_basket"]
-size = Vector3(0.58, 0.46, 0.9)
+size = Vector3(0.58, 0.43, 0.83)
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_handle"]
 size = Vector3(0.62, 0.1, 0.1)
@@ -28,11 +28,11 @@ angular_damp = 2.0
 script = ExtResource("1_cart")
 
 [node name="BasketShape" type="CollisionShape3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.64, -0.03)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.715, -0.085)
 shape = SubResource("BoxShape3D_basket")
 
 [node name="HandleShape" type="CollisionShape3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.02, 0.47)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.0, 0.47)
 shape = SubResource("BoxShape3D_handle")
 
 [node name="WheelFL" type="CollisionShape3D" parent="."]
