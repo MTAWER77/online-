@@ -1,0 +1,69 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/vehicles/shopping_cart.gd" id="1_cart"]
+
+[sub_resource type="PhysicsMaterial" id="PhysicsMaterial_cart"]
+friction = 0.0
+bounce = 0.05
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_basket"]
+size = Vector3(0.58, 0.46, 0.9)
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_handle"]
+size = Vector3(0.62, 0.1, 0.1)
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_wheel"]
+radius = 0.11
+
+[node name="ShoppingCart" type="RigidBody3D"]
+mass = 30.0
+physics_material_override = SubResource("PhysicsMaterial_cart")
+gravity_scale = 1.5
+center_of_mass_mode = 1
+center_of_mass = Vector3(0, 0.3, 0)
+can_sleep = false
+continuous_cd = true
+linear_damp = 0.05
+angular_damp = 2.0
+script = ExtResource("1_cart")
+
+[node name="BasketShape" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.64, -0.03)
+shape = SubResource("BoxShape3D_basket")
+
+[node name="HandleShape" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.02, 0.47)
+shape = SubResource("BoxShape3D_handle")
+
+[node name="WheelFL" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.25, 0.11, -0.38)
+shape = SubResource("SphereShape3D_wheel")
+
+[node name="WheelFR" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.25, 0.11, -0.38)
+shape = SubResource("SphereShape3D_wheel")
+
+[node name="WheelRL" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.25, 0.11, 0.38)
+shape = SubResource("SphereShape3D_wheel")
+
+[node name="WheelRR" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.25, 0.11, 0.38)
+shape = SubResource("SphereShape3D_wheel")
+
+[node name="Visual" type="Node3D" parent="."]
+
+[node name="CameraRig" type="Node3D" parent="."]
+
+[node name="Camera3D" type="Camera3D" parent="CameraRig"]
+transform = Transform3D(1, 0, 0, 0, 0.9848, 0.1736, 0, -0.1736, 0.9848, 0, 1.2, 3.6)
+current = true
+
+[node name="HUD" type="CanvasLayer" parent="."]
+
+[node name="Label" type="Label" parent="HUD"]
+offset_left = 16.0
+offset_top = 12.0
+offset_right = 460.0
+offset_bottom = 100.0
+theme_override_font_sizes/font_size = 18
