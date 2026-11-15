@@ -1,11 +1,7 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene format=3 uid="uid://c06i7ld1io6jl"]
 
-[ext_resource type="Script" path="res://scripts/vehicles/shopping_cart_custom.gd" id="1_cart"]
-[ext_resource type="Script" path="res://scripts/vehicles/cart_editor_preview.gd" id="2_preview"]
-
-[sub_resource type="PhysicsMaterial" id="PhysicsMaterial_cart"]
-friction = 0.0
-bounce = 0.15
+[ext_resource type="Script" uid="uid://b5i6m87h325h2" path="res://scripts/vehicles/shopping_cart.gd" id="1_t2wvs"]
+[ext_resource type="Script" uid="uid://dc23l1vvcgf4c" path="res://scripts/vehicles/cart_editor_preview.gd" id="2_preview"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_basket"]
 size = Vector3(0.58, 0.43, 0.83)
@@ -16,70 +12,45 @@ size = Vector3(0.62, 0.1, 0.1)
 [sub_resource type="SphereShape3D" id="SphereShape3D_wheel"]
 radius = 0.11
 
-[node name="ShoppingCart" type="RigidBody3D"]
-mass = 30.0
-physics_material_override = SubResource("PhysicsMaterial_cart")
-gravity_scale = 1.5
-center_of_mass_mode = 1
-center_of_mass = Vector3(0, 0.3, 0)
-can_sleep = false
-continuous_cd = true
-linear_damp = 0.05
-angular_damp = 2.0
-script = ExtResource("1_cart")
-max_speed = 18.0
-acceleration = 9.5
-brake_decel = 19.0
-coast_drag = 0.4
-slope_gravity = 1.3
-gas_response = 4.0
-brake_response = 8.0
-turn_rate = 2.3
-steer_response = 5.0
-yaw_response = 7.0
-grip = 2.8
-roll_lean = 0.022
-max_lean = 0.42
-lean_kp = 36.0
-lean_kd = 7.0
-jump_velocity = 8.0
+[node name="ShoppingCart" type="CharacterBody3D" unique_id=674271394]
+script = ExtResource("1_t2wvs")
 
-[node name="BasketShape" type="CollisionShape3D" parent="."]
+[node name="BasketShape" type="CollisionShape3D" parent="." unique_id=727986073]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.715, -0.085)
 shape = SubResource("BoxShape3D_basket")
 
-[node name="HandleShape" type="CollisionShape3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.0, 0.47)
+[node name="HandleShape" type="CollisionShape3D" parent="." unique_id=2113088493]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0.47)
 shape = SubResource("BoxShape3D_handle")
 
-[node name="WheelFL" type="CollisionShape3D" parent="."]
+[node name="WheelFL" type="CollisionShape3D" parent="." unique_id=1315525380]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.25, 0.11, -0.38)
 shape = SubResource("SphereShape3D_wheel")
 
-[node name="WheelFR" type="CollisionShape3D" parent="."]
+[node name="WheelFR" type="CollisionShape3D" parent="." unique_id=1332781213]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.25, 0.11, -0.38)
 shape = SubResource("SphereShape3D_wheel")
 
-[node name="WheelRL" type="CollisionShape3D" parent="."]
+[node name="WheelRL" type="CollisionShape3D" parent="." unique_id=482888189]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.25, 0.11, 0.38)
 shape = SubResource("SphereShape3D_wheel")
 
-[node name="WheelRR" type="CollisionShape3D" parent="."]
+[node name="WheelRR" type="CollisionShape3D" parent="." unique_id=2026149788]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.25, 0.11, 0.38)
 shape = SubResource("SphereShape3D_wheel")
 
-[node name="Visual" type="Node3D" parent="."]
+[node name="Visual" type="Node3D" parent="." unique_id=921473217]
 script = ExtResource("2_preview")
 
-[node name="CameraRig" type="Node3D" parent="."]
+[node name="CameraRig" type="Node3D" parent="." unique_id=2145852048]
 
-[node name="Camera3D" type="Camera3D" parent="CameraRig"]
+[node name="Camera3D" type="Camera3D" parent="CameraRig" unique_id=740875731]
 transform = Transform3D(1, 0, 0, 0, 0.9848, 0.1736, 0, -0.1736, 0.9848, 0, 0.8, 2.4)
 current = true
 
-[node name="HUD" type="CanvasLayer" parent="."]
+[node name="HUD" type="CanvasLayer" parent="." unique_id=351361462]
 
-[node name="Label" type="Label" parent="HUD"]
+[node name="Label" type="Label" parent="HUD" unique_id=718076138]
 offset_left = 16.0
 offset_top = 12.0
 offset_right = 460.0

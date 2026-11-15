@@ -1,5 +1,7 @@
 [gd_scene format=3 uid="uid://rbq6bqir1tg2"]
 
+[ext_resource type="Script" uid="uid://byg4ac8pna8el" path="res://scripts/updater/updater.gd" id="1_asilt"]
+
 [node name="Updater" type="Control" unique_id=611633878]
 layout_mode = 3
 anchors_preset = 15
@@ -7,6 +9,8 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+script = ExtResource("1_asilt")
+check_in_editor = true
 
 [node name="Center" type="CenterContainer" parent="." unique_id=2082555425]
 layout_mode = 1
