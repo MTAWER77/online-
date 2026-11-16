@@ -1,6 +1,6 @@
 extends CharacterBody3D
 ## scripts/vehicles/shopping_cart.gd
-## عربية Kinematic + Rollback محسّن + نظام أمان + إرسال ذكي (Smart Send).
+## عربية تسوق Kinematic + Rollback netcode + Logging شامل.
 
 const SessionMode = preload("res://scripts/multiplayer/session_mode.gd")
 const DebugLog = preload("res://scripts/systems/debug_log.gd")
@@ -20,7 +20,6 @@ enum ControlRole { ALL, STEER_JUMP, GAS_BRAKE }
 @export_group("Steering")
 @export var turn_rate: float = 3.0
 @export var steer_response: float = 10.0
-@export var steer_dead_zone: float = 0.15
 
 @export_group("Jump")
 @export var jump_velocity: float = 10.0
@@ -47,22 +46,30 @@ enum ControlRole { ALL, STEER_JUMP, GAS_BRAKE }
 
 @export_group("Rollback")
 @export var rb_send_every: int = 4
-@export var rb_send_window: int = 16
+@export var rb_send_window: int = 24
 @export var rb_max_rollback: int = 60
 @export var rb_auth_every: int = 45
 @export var rb_auth_tolerance: float = 0.10
 @export var rb_remote_timeout_ticks: int = 42
 @export var rb_input_delay: int = 4
 @export var rb_input_threshold: float = 0.08
-@export var rb_rollback_cooldown: int = 4
+@export var rb_rollback_cooldown: int = 1
 @export var rb_correction_decay: float = 10.0
 @export var rb_corr_max: float = 1.0
 
-@export_group("Anti-Cheat")
-@export var max_inputs_per_sec: int = 80
-@export var ban_duration_ms: int = 8000
-@export var max_suspicious_before_ban: int = 8
-@export var max_input_speed: float = 40.0
+@export_group("Hurt")
+@export var hurt_cooldown_time: float = 0.4
+
+@export_group("Logging")
+@export var log_speed_change: bool = true
+@export var log_jump: bool = true
+@export var log_crash: bool = true
+@export var log_hurt: bool = true
+@export var log_respawn: bool = true
+@export var log_rollback_events: bool = true
+@export var log_auth_corrections: bool = true
+@export var log_smart_send: bool = false
+@export var log_interval_sec: float = 5.0
 
 @onready var _visual: Node3D = $Visual
 @onready var _camera_rig: Node3D = $CameraRig
@@ -72,6 +79,7 @@ enum ControlRole { ALL, STEER_JUMP, GAS_BRAKE }
 # ---- Simulation state ----
 var _online: bool = false
 var _role: int = ControlRole.ALL
+var _authoritative: bool = true
 var _yaw: float = 0.0
 var _speed: float = 0.0
 var _jump_buffer: float = 0.0
@@ -83,9 +91,13 @@ var _gas_smooth: float = 0.0
 var _brake_smooth: float = 0.0
 var _steer_smooth: float = 0.0
 var _spawn_transform: Transform3D
-var _drift_amount: float = 0.0
 
-# ---- Visual state ----
+# ---- Hurt ----
+var _hurt_cooldown: float = 0.0
+var _pending_hurt: bool = false
+var _last_hurt_reason: String = ""
+
+# ---- Visual ----
 var _vis_lean: float = 0.0
 var _vis_pitch: float = 0.0
 var _crash_vis: float = 0.0
@@ -99,6 +111,11 @@ var _acc_smooth: Vector3 = Vector3.ZERO
 
 var _peer_id: int = -1
 var _peer_check_ms: int = 0
+
+# ---- Smart Send ----
+var _last_sent_input: Vector4 = Vector4(-999, -999, -999, -999)
+var _input_change_ms: int = 0
+const STABLE_HEARTBEAT_TICKS: int = 8
 
 # ---- Rollback ----
 const RB_HIST: int = 256
@@ -141,27 +158,16 @@ var _rb_stat_resim_ticks: int = 0
 var _rb_stat_corrections: int = 0
 var _rb_stat_dropped: int = 0
 var _rb_stat_sent: int = 0
+var _rb_stat_skipped: int = 0
 var _err_sum: float = 0.0
 var _err_n: int = 0
 var _stats_timer: float = 0.0
-
-# ---- Smart send optimization ----
-var _last_sent_input: Vector4 = Vector4(-999, -999, -999, -999)
-var _last_send_ms: int = 0
-var _input_change_ms: int = 0
-const HB_STABLE_MS: int = 100   # Heartbeat when input stable
-const HB_ACTIVE_MS: int = 40    # Send rate right after input changes
-const CHANGE_REDUNDANCY_MS: int = 300  # Keep redundancy this long after change
-
-# ---- Anti-cheat ----
-var _banned_peers: Dictionary = {}       # peer_id -> ban_until_ms
-var _suspicious_count: Dictionary = {}   # peer_id -> count
-var _auth_diverged_ms: int = 0
-
-# ---- Adaptive auth ----
-var _next_auth_tick: int = 0
+var _max_err_this_window: float = 0.0
 
 
+# =====================================================================
+# READY
+# =====================================================================
 func _ready() -> void:
 	add_to_group("unicycle")
 	add_to_group("cart")
@@ -171,6 +177,8 @@ func _ready() -> void:
 		_role = ControlRole.STEER_JUMP if GDSync.is_host() else ControlRole.GAS_BRAKE
 	else:
 		_role = ControlRole.ALL
+
+	_authoritative = (not _online) or GDSync.is_host()
 
 	floor_snap_length = 0.3
 	_ensure_input_actions()
@@ -185,7 +193,26 @@ func _ready() -> void:
 	_camera_rig.rotation = Vector3(0.0, _yaw, 0.0)
 	_camera.make_current()
 
+	# [LOG] Startup
+	_log_startup()
 	_rb_setup()
+
+
+func _log_startup() -> void:
+	var role_str := "ALL (offline)"
+	if _role == ControlRole.STEER_JUMP:
+		role_str = "HOST (steer+jump)"
+	elif _role == ControlRole.GAS_BRAKE:
+		role_str = "CLIENT (gas+brake)"
+	
+	DebugLog.say("INIT", "═══════════════════════════════════════")
+	DebugLog.say("INIT", "Shopping Cart Starting")
+	DebugLog.say("INIT", "  online=%s" % _online)
+	DebugLog.say("INIT", "  authoritative=%s" % _authoritative)
+	DebugLog.say("INIT", "  role=%s" % role_str)
+	DebugLog.say("INIT", "  spawn=%s" % global_position)
+	DebugLog.say("INIT", "  physics_ticks=%d" % Engine.physics_ticks_per_second)
+	DebugLog.say("INIT", "═══════════════════════════════════════")
 
 
 func _ensure_input_actions() -> void:
@@ -207,6 +234,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _leave_to_menu() -> void:
+	DebugLog.say("EXIT", "Leaving to menu")
 	if _online:
 		GDSync.lobby_leave()
 	get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn")
@@ -214,8 +242,59 @@ func _leave_to_menu() -> void:
 
 func set_checkpoint(target: Transform3D) -> void:
 	_spawn_transform = target
+	DebugLog.say("CP", "checkpoint saved → %s" % target.origin)
 
 
+# =====================================================================
+# HURT / RESPAWN API
+# =====================================================================
+func _hurt(reason: String = "generic", _damage: float = 1.0) -> void:
+	if _hurt_cooldown > 0.0:
+		return
+	_hurt_cooldown = hurt_cooldown_time
+	_last_hurt_reason = reason
+
+	if log_hurt:
+		DebugLog.say("HURT", "hurt received: %s | online=%s host=%s" % [reason, _online, GDSync.is_host() if _online else true])
+
+	if not _online:
+		_respawn("hurt_offline")
+		return
+
+	if GDSync.is_host():
+		_pending_hurt = true
+		if log_hurt:
+			DebugLog.say("HURT", "queued pending_hurt (wait for next tick)")
+	else:
+		if log_hurt:
+			DebugLog.say("HURT", "sending RPC to host")
+		GDSync.call_func_on(GDSync.get_host(), _rx_hurt_request, reason)
+
+
+func _respawn(reason: String = "respawn") -> void:
+	if log_respawn:
+		DebugLog.say("RESPAWN", "→ checkpoint | reason=%s | from=%s" % [reason, global_position])
+	_reset_to(_spawn_transform)
+
+
+func _rx_hurt_request(reason: String) -> void:
+	if not _rb or not GDSync.is_host():
+		return
+	var sender: int = GDSync.get_sender_id()
+	if sender >= 0 and sender not in GDSync.lobby_get_all_clients():
+		return
+	if log_hurt:
+		DebugLog.say("HURT", "RPC received from peer %d | reason=%s" % [sender, reason])
+	_hurt(reason)
+
+
+func is_authoritative() -> bool:
+	return _authoritative
+
+
+# =====================================================================
+# PHYSICS
+# =====================================================================
 func _physics_process(delta: float) -> void:
 	if _rb:
 		_rb_process()
@@ -223,10 +302,14 @@ func _physics_process(delta: float) -> void:
 		_offline_step(delta)
 
 
-# =====================================================================
-# Simulation
-# =====================================================================
 func _control_step(delta: float, steer: float, brake: float, gas: float) -> bool:
+	_hurt_cooldown = maxf(_hurt_cooldown - delta, 0.0)
+	if _pending_hurt and not _rb_resim:
+		_pending_hurt = false
+		if log_hurt:
+			DebugLog.say("HURT", "pending_hurt resolved → will respawn")
+		return true
+
 	if _crash_left > 0.0:
 		_crash_left = maxf(_crash_left - delta, 0.0)
 		steer = 0.0
@@ -244,62 +327,32 @@ func _control_step(delta: float, steer: float, brake: float, gas: float) -> bool
 		_coyote = coyote_time
 	else:
 		_coyote = maxf(_coyote - delta, 0.0)
-
-	var grav_mult = 2.5 if velocity.y < 0 else 1.2
-	velocity.y -= gravity * grav_mult * delta
+	velocity.y -= gravity * delta
 
 	var speed_frac: float = clampf(absf(_speed) / max_speed, 0.0, 1.0)
-	
 	if _is_fallen:
 		_speed = 0.0
 	elif _brake_smooth > 0.05:
 		_speed = move_toward(_speed, 0.0, brake_decel * _brake_smooth * delta)
 	elif _gas_smooth > 0.02:
-		# Progressive acceleration curve (kick from stop, taper near max)
-		var accel_curve: float = 1.0
-		if _speed < 3.0:
-			accel_curve = 1.6
-		elif _speed > max_speed * 0.85:
-			accel_curve = 0.6
-		_speed = move_toward(_speed, max_speed * _gas_smooth, acceleration * accel_curve * delta)
+		_speed = move_toward(_speed, max_speed * _gas_smooth, acceleration * delta)
 	else:
 		_speed = move_toward(_speed, 0.0, coast_drag * delta)
 
-	# Steering with dead zone (prevents jitter when slightly touching)
-	var steer_for_turn: float = _steer_smooth
-	if absf(steer_for_turn) < steer_dead_zone:
-		steer_for_turn = 0.0
-	else:
-		steer_for_turn = signf(steer_for_turn) * (absf(steer_for_turn) - steer_dead_zone) / (1.0 - steer_dead_zone)
-
-	var control_mult: float = 1.0 if _grounded else 0.4
-	var turn_factor: float = lerpf(0.6, 1.0, speed_frac)
-	_yaw += steer_for_turn * turn_rate * turn_factor * control_mult * delta
+	var turn_factor: float = lerpf(0.5, 1.0, speed_frac)
+	_yaw += _steer_smooth * turn_rate * turn_factor * delta
 	rotation = Vector3(0.0, _yaw, 0.0)
 
 	var forward: Vector3 = Vector3(-sin(_yaw), 0.0, -cos(_yaw))
-
-	# Slope slide for parkour
-	if _grounded and not _is_fallen:
-		var n = get_floor_normal()
-		if n.y < 0.99:
-			var slope_dir = Vector3(n.x, 0, n.z).normalized()
-			velocity.x += slope_dir.x * 10.0 * delta
-			velocity.z += slope_dir.z * 10.0 * delta
-
-	# Drift tracking (visual feedback in custom script)
-	var target_vel = forward * _speed
-	var vel_diff = Vector2(target_vel.x - velocity.x, target_vel.z - velocity.z).length()
-	_drift_amount = lerpf(_drift_amount, clampf(vel_diff * 0.3, 0.0, 1.0), 8.0 * delta)
-
-	velocity.x = move_toward(velocity.x, target_vel.x, 50.0 * delta)
-	velocity.z = move_toward(velocity.z, target_vel.z, 50.0 * delta)
+	velocity.x = forward.x * _speed
+	velocity.z = forward.z * _speed
 
 	if _jump_buffer > 0.0 and _coyote > 0.0 and not _is_fallen:
 		velocity.y = jump_velocity
 		_jump_buffer = 0.0
 		_coyote = 0.0
-		_grounded = false
+		if log_jump and not _rb_resim:
+			DebugLog.say("JUMP", "jump! | speed=%.1f | pos=%s" % [_speed, global_position])
 
 	var pre_move: Vector3 = Vector3(velocity.x, 0.0, velocity.z)
 	move_and_slide()
@@ -317,12 +370,16 @@ func _control_step(delta: float, steer: float, brake: float, gas: float) -> bool
 			_speed = 0.0
 			velocity.x = 0.0
 			velocity.z = 0.0
-			if not _rb_resim:
-				DebugLog.say("CART", "كراش! (impact=%.1f m/s)" % impact)
+			if log_crash and not _rb_resim:
+				DebugLog.say("CRASH", "impact=%.1f m/s (threshold=%.1f) | pos=%s" % [impact, crash_speed, global_position])
 		else:
 			_speed = clampf(velocity.dot(forward), 0.0, _speed)
 
-	return global_position.y < fall_limit
+	if global_position.y < fall_limit:
+		if log_crash and not _rb_resim:
+			DebugLog.say("CRASH", "fell below limit y=%.1f < %.1f" % [global_position.y, fall_limit])
+		return true
+	return false
 
 
 func _apply_reset_state(target: Transform3D) -> void:
@@ -338,7 +395,6 @@ func _apply_reset_state(target: Transform3D) -> void:
 	_gas_smooth = 0.0
 	_brake_smooth = 0.0
 	_steer_smooth = 0.0
-	_drift_amount = 0.0
 
 
 func _offline_step(delta: float) -> void:
@@ -348,7 +404,7 @@ func _offline_step(delta: float) -> void:
 	if Input.is_action_just_pressed(&"jump"):
 		_jump_buffer = 0.15
 	if _control_step(delta, steer, brake, gas):
-		_reset_to(_spawn_transform)
+		_respawn("offline_fell_or_hurt")
 
 
 func _reset_to(target: Transform3D) -> void:
@@ -366,7 +422,7 @@ func _sim_time() -> float:
 
 
 # =====================================================================
-# Visuals (always in _process for smoothness)
+# VISUALS
 # =====================================================================
 func _process(delta: float) -> void:
 	if delta <= 0.0:
@@ -451,6 +507,7 @@ func _update_hud() -> void:
 	var txt: String = "%s\nSPEED: %d km/h" % [role_text, int(_speed * 3.6)]
 	if _online and _rb:
 		txt += "\nNET: ROLLBACK" + ("" if _rb_started else " (sync...)")
+		txt += "\nTick: %d" % _tick
 		if _rb_peer_lost_ms > 0:
 			txt += "\nاللاعب التاني خرج - رجوع للقائمة..."
 	if _crash_left > 0.0:
@@ -459,7 +516,7 @@ func _update_hud() -> void:
 
 
 # =====================================================================
-# Visual Builder
+# VISUAL BUILDER
 # =====================================================================
 func _build_visual() -> void:
 	_model = Node3D.new()
@@ -551,10 +608,11 @@ func _make_item(parent: Node3D, pos: Vector3, scene: PackedScene, size: float, m
 
 
 # =====================================================================
-# Rollback + Anti-Cheat
+# ROLLBACK
 # =====================================================================
 func _rb_setup() -> void:
 	if not _online:
+		DebugLog.say("RB", "offline mode — no rollback, using _offline_step")
 		return
 	_dt = 1.0 / float(Engine.physics_ticks_per_second)
 	_rb_states.resize(RB_HIST)
@@ -572,11 +630,14 @@ func _rb_setup() -> void:
 	GDSync.expose_func(_rx_go, ENUMS.EXPOSE_PERMISSION.HOST)
 	GDSync.expose_func(_rx_auth, ENUMS.EXPOSE_PERMISSION.HOST)
 	GDSync.expose_func(_rx_event, ENUMS.EXPOSE_PERMISSION.HOST)
+	GDSync.expose_func(_rx_hurt_request, ENUMS.EXPOSE_PERMISSION.CLIENT)
 	_rb_wait_start_ms = Time.get_ticks_msec()
 	_rb_in_window_start_ms = _rb_wait_start_ms
-	_last_send_ms = _rb_wait_start_ms
 	_rb = true
-	DebugLog.say("RB", "Rollback + Anti-Cheat شغال: tick=%.0fHz role=%d" % [1.0 / _dt, _role])
+	DebugLog.say("RB", "setup complete | tick_rate=%.0fHz | role=%d | input_delay=%d | max_rollback=%d" % [
+		1.0 / _dt, _role, rb_input_delay, rb_max_rollback])
+	DebugLog.say("RB", "config: send_every=%d send_window=%d auth_every=%d auth_tol=%.3f cooldown=%d" % [
+		rb_send_every, rb_send_window, rb_auth_every, rb_auth_tolerance, rb_rollback_cooldown])
 
 
 func _rb_process() -> void:
@@ -592,35 +653,6 @@ func _rb_process() -> void:
 	_rb_log_stats()
 
 
-# ---- Anti-cheat helpers ----
-func _rb_ban(peer: int, reason: String) -> void:
-	if peer < 0:
-		return
-	var now: int = Time.get_ticks_msec()
-	_banned_peers[peer] = now + ban_duration_ms
-	DebugLog.say("SEC", "peer %d محظور %dms - %s" % [peer, ban_duration_ms, reason])
-
-
-func _rb_is_banned(peer: int) -> bool:
-	if not _banned_peers.has(peer):
-		return false
-	var until: int = _banned_peers[peer]
-	if Time.get_ticks_msec() > until:
-		_banned_peers.erase(peer)
-		return false
-	return true
-
-
-func _rb_flag_suspicious(peer: int, reason: String) -> void:
-	if peer < 0:
-		return
-	_suspicious_count[peer] = int(_suspicious_count.get(peer, 0)) + 1
-	if _suspicious_count[peer] >= max_suspicious_before_ban:
-		_rb_ban(peer, "many flags: " + reason)
-		_suspicious_count.erase(peer)
-
-
-# ---- Startup handshake ----
 func _rb_try_start() -> void:
 	var now: int = Time.get_ticks_msec()
 	var peer: int = _find_peer()
@@ -630,17 +662,22 @@ func _rb_try_start() -> void:
 				GDSync.call_func_on(peer, _rx_go)
 				_rb_go_sent = true
 				_rb_start_at_ms = now + roundi(clampf(SessionMode.last_ping_ms, 0.0, 600.0) * 0.5)
+				DebugLog.say("RB", "sent GO to peer %d | start in %dms (ping=%.0fms)" % [
+					peer, _rb_start_at_ms - now, SessionMode.last_ping_ms])
 			elif now - _rb_wait_start_ms > 8000:
 				_rb_go_sent = true
 				_rb_start_at_ms = now
-				DebugLog.say("RB", "مفيش client رد - بدأت لوحدي")
+				DebugLog.say("RB", "no peer hello after 8s — starting alone")
 		if _rb_go_sent and now >= _rb_start_at_ms:
 			_rb_begin()
 	else:
 		if peer >= 0 and now - _rb_hello_ms > 250:
 			_rb_hello_ms = now
 			GDSync.call_func_on_unreliable(peer, _rx_hello)
-		if _rb_got_go or now - _rb_wait_start_ms > 15000:
+		if _rb_got_go:
+			_rb_begin()
+		elif now - _rb_wait_start_ms > 15000:
+			DebugLog.say("RB", "timeout waiting for GO (15s) — starting anyway")
 			_rb_begin()
 
 
@@ -650,21 +687,20 @@ func _rb_begin() -> void:
 	for k in rb_input_delay:
 		_rb_local[k % RB_HIST] = Vector4.ZERO
 		_rb_local_tag[k % RB_HIST] = k
-	DebugLog.say("RB", "بدأت المحاكاة (tick 0)")
+	DebugLog.say("RB", "════ SIMULATION STARTED ════")
+	DebugLog.say("RB", "  tick=0 | role=%d | authoritative=%s" % [_role, _authoritative])
 
 
 func _rb_sender_ok() -> bool:
 	var sender: int = GDSync.get_sender_id()
-	if sender < 0:
-		return true
-	if _rb_is_banned(sender):
-		return false
-	return sender == GDSync.get_client_id() or sender in GDSync.lobby_get_all_clients()
+	return sender < 0 or sender == GDSync.get_client_id() or sender in GDSync.lobby_get_all_clients()
 
 
 func _rb_check_peer() -> void:
 	var now: int = Time.get_ticks_msec()
 	if _find_peer() >= 0:
+		if not _rb_had_peer:
+			DebugLog.say("NET", "peer found")
 		_rb_had_peer = true
 		_rb_peer_lost_ms = 0
 		return
@@ -672,8 +708,9 @@ func _rb_check_peer() -> void:
 		return
 	if _rb_peer_lost_ms == 0:
 		_rb_peer_lost_ms = now
-		DebugLog.say("RB", "الطرف التاني خرج")
+		DebugLog.say("NET", "peer LOST — waiting 3s before leaving")
 	elif now - _rb_peer_lost_ms > 3000:
+		DebugLog.say("NET", "peer lost > 3s — leaving to menu")
 		_leave_to_menu()
 
 
@@ -696,14 +733,15 @@ func _rx_hello() -> void:
 		return
 	if GDSync.is_host():
 		_rb_peer_hello = true
+		DebugLog.say("NET", "received HELLO from client")
 
 
 func _rx_go() -> void:
 	if not GDSync.is_host():
 		_rb_got_go = true
+		DebugLog.say("NET", "received GO from host — will begin")
 
 
-# ---- Input sampling ----
 func _q(v: float) -> float:
 	return snappedf(v, 0.1)
 
@@ -784,11 +822,14 @@ func _rb_apply_event(origin: Vector3, yaw: float, resim: bool) -> void:
 		_rb_corr = Vector3.ZERO
 		_rb_corr_rot = Quaternion.IDENTITY
 		reset_physics_interpolation()
-		DebugLog.say("RB", "respawn event عند %s" % origin)
+		if log_respawn:
+			DebugLog.say("RESPAWN", "event applied @ tick %d | → %s" % [_tick, origin])
 
 
 func _rb_post_event(t: int, origin: Vector3, yaw: float) -> void:
 	_rb_events[t] = [origin, yaw]
+	if log_respawn:
+		DebugLog.say("RESPAWN", "event posted @ tick %d | will apply at tick %d | → %s" % [_tick, t, origin])
 	var peer: int = _find_peer()
 	if peer >= 0:
 		GDSync.call_func_on(peer, _rx_event, t, origin, yaw)
@@ -800,11 +841,12 @@ func _rx_event(t: int, origin: Vector3, yaw: float) -> void:
 	if _rb_events.has(t):
 		return
 	_rb_events[t] = [origin, yaw]
+	if log_respawn:
+		DebugLog.say("RESPAWN", "event received @ tick %d (current=%d) | → %s" % [t, _tick, origin])
 	if _rb_started and t < _tick:
 		_rb_mark(t)
 
 
-# ---- State pack/unpack ----
 func _rb_pack() -> PackedFloat64Array:
 	var r: Vector3 = global_rotation
 	return PackedFloat64Array([
@@ -840,7 +882,6 @@ func _rb_mark(t: int) -> void:
 	_rb_from = t if _rb_from < 0 else mini(_rb_from, t)
 
 
-# ---- Rollback with smooth correction ----
 func _rb_do_rollback() -> void:
 	if _rb_from < 0:
 		return
@@ -854,10 +895,13 @@ func _rb_do_rollback() -> void:
 
 	var before_pos: Vector3 = global_position
 	var before_q: Quaternion = global_transform.basis.get_rotation_quaternion()
+	var depth: int = _tick - from
 	_rb_load_state(_rb_states[from % RB_HIST] as PackedFloat64Array)
 	for t in range(from, _tick):
 		_rb_save_state(t)
 		_rb_run_tick(t, true)
+
+	reset_physics_interpolation()
 
 	var jump_err: Vector3 = before_pos - global_position
 	var after_q: Quaternion = global_transform.basis.get_rotation_quaternion()
@@ -866,57 +910,44 @@ func _rb_do_rollback() -> void:
 	if _rb_corr.length() > rb_corr_max:
 		_rb_corr = Vector3.ZERO
 		_rb_corr_rot = Quaternion.IDENTITY
+		reset_physics_interpolation()
 	_rb_corr.y = maxf(_rb_corr.y, -0.25)
-
-	reset_physics_interpolation()
-
 	_rb_stat_rollbacks += 1
-	_rb_stat_resim_ticks += _tick - from
+	_rb_stat_resim_ticks += depth
+
+	if log_rollback_events and (jump_err.length() > 0.05 or depth > 15):
+		DebugLog.say("ROLLBACK", "depth=%d ticks | err=%.3fm | corr=%.3fm | pos_before=%s pos_after=%s" % [
+			depth, jump_err.length(), _rb_corr.length(), before_pos, global_position])
 
 
-# ---- SMART SEND: only send when necessary ----
 func _rb_send_inputs() -> void:
 	var t: int = _tick - 1 + rb_input_delay
 	if t < 0:
 		return
-	
-	var current: Vector4 = _rb_local[t % RB_HIST]
+
+	var cur: Vector4 = _rb_local[t % RB_HIST]
 	var now_ms: int = Time.get_ticks_msec()
-	var input_changed: bool = not current.is_equal_approx(_last_sent_input)
-	
+	var input_changed: bool = not cur.is_equal_approx(_last_sent_input)
+
 	if input_changed:
 		_input_change_ms = now_ms
-		_last_sent_input = current
-	
-	var since_change: int = now_ms - _input_change_ms
-	var since_send: int = now_ms - _last_send_ms
-	
-	# Decision logic
-	var should_send: bool = false
-	var first: int = t
-	
-	if input_changed:
-		should_send = true
-		first = maxi(0, t - rb_send_window + 1)
-	elif since_change < CHANGE_REDUNDANCY_MS:
-		if since_send >= HB_ACTIVE_MS:
-			should_send = true
-			first = maxi(0, t - rb_send_window + 1)
+		_last_sent_input = cur
 	else:
-		if since_send >= HB_STABLE_MS:
-			should_send = true
-			first = t  # heartbeat: single tick
-	
-	if not should_send:
-		return
-	
-	_last_send_ms = now_ms
-	_rb_stat_sent += 1
-	
+		var since_change: int = now_ms - _input_change_ms
+		var interval: int = rb_send_every if since_change < 200 else STABLE_HEARTBEAT_TICKS
+		if (t - rb_input_delay) % interval != 0:
+			_rb_stat_skipped += 1
+			if log_smart_send and _rb_stat_skipped % 30 == 0:
+				DebugLog.say("SEND", "skipped stable tick | total_skipped=%d" % _rb_stat_skipped)
+			return
+
 	var peer: int = _find_peer()
-	if peer < 0 or _rb_is_banned(peer):
+	if peer < 0:
 		return
-	
+	var first: int = t
+	if input_changed or (now_ms - _input_change_ms) < 200:
+		first = maxi(0, t - rb_send_window + 1)
+
 	var data: PackedFloat32Array = PackedFloat32Array()
 	var host: bool = GDSync.is_host()
 	for k in range(first, t + 1):
@@ -927,45 +958,40 @@ func _rb_send_inputs() -> void:
 		else:
 			data.append(v.z)
 			data.append(v.w)
+	_rb_stat_sent += 1
+	if log_smart_send and input_changed:
+		DebugLog.say("SEND", "input changed → sent range [%d..%d] (%d ticks)" % [first, t, t - first + 1])
 	GDSync.call_func_on_unreliable(peer, _rx_inputs, first, data)
 
 
-func _rb_rate_ok(peer: int) -> bool:
+func _rb_rate_ok() -> bool:
 	var now: int = Time.get_ticks_msec()
 	if now - _rb_in_window_start_ms >= 1000:
 		_rb_in_window_start_ms = now
 		_rb_in_count = 0
 	_rb_in_count += 1
-	if _rb_in_count > max_inputs_per_sec:
+	if _rb_in_count > 80:
 		_rb_stat_dropped += 1
-		_rb_flag_suspicious(peer, "rate limit flood")
+		if _rb_stat_dropped == 1 or _rb_stat_dropped % 50 == 0:
+			DebugLog.say("NET", "WARN rate limit exceeded | dropped=%d" % _rb_stat_dropped)
 		return false
 	return true
 
 
-# ---- Receive inputs (with anti-cheat) ----
 func _rx_inputs(first: int, data: PackedFloat32Array) -> void:
-	if not _rb:
-		return
-	var sender: int = GDSync.get_sender_id()
-	if not _rb_sender_ok():
-		return
-	if not _rb_rate_ok(sender):
+	if not _rb or not _rb_sender_ok() or not _rb_rate_ok():
 		return
 	if first < 0 or data.size() < 2 or data.size() > 128 or data.size() % 2 != 0:
-		_rb_flag_suspicious(sender, "malformed input")
 		return
-	
 	var host: bool = GDSync.is_host()
+	var marks: int = 0
 	for i in data.size() / 2:
 		var k: int = first + i
 		if k < _tick - RB_HIST + 16 or k > _tick + RB_HIST - 16:
-			_rb_flag_suspicious(sender, "tick out of bounds")
 			continue
 		var a: float = data[2 * i]
 		var b: float = data[2 * i + 1]
 		if not is_finite(a) or not is_finite(b):
-			_rb_flag_suspicious(sender, "NaN/Inf input")
 			continue
 		var idx: int = k % RB_HIST
 		if _rb_remote_tag[idx] == k:
@@ -984,44 +1010,31 @@ func _rx_inputs(first: int, data: PackedFloat32Array) -> void:
 			var d: Vector4 = (_rb_local[idx] + v) - _rb_used[idx]
 			if absf(d.x) + absf(d.y) + absf(d.z) + absf(d.w) > rb_input_threshold:
 				_rb_mark(k)
-	
+				marks += 1
+	if marks > 0 and log_rollback_events and marks >= 3:
+		DebugLog.say("INPUTS", "received %d ticks | caused %d rollback marks" % [data.size() / 2, marks])
 	var guard: int = 0
 	while guard < RB_HIST and _rb_remote_tag[(_rb_confirmed + 1) % RB_HIST] == _rb_confirmed + 1:
 		_rb_confirmed += 1
 		guard += 1
 
 
-# ---- Adaptive auth sending ----
 func _rb_send_auth() -> void:
-	if not GDSync.is_host() or _rb_confirmed < 0:
+	if not GDSync.is_host() or _tick % rb_auth_every != 0 or _rb_confirmed < 0:
 		return
-	
-	var now: int = Time.get_ticks_msec()
-	var since_diverged: int = now - _auth_diverged_ms
-	# Adaptive interval: fast when unstable, slow when stable
-	var interval_ticks: int = rb_auth_every if since_diverged < 2000 else int(rb_auth_every * 2.0)
-	
-	if _tick < _next_auth_tick:
-		return
-	_next_auth_tick = _tick + interval_ticks
-	
 	var c: int = _rb_confirmed
 	if _rb_state_tag[c % RB_HIST] != c or _tick - c > RB_HIST - 8:
 		return
 	var peer: int = _find_peer()
-	if peer >= 0 and not _rb_is_banned(peer):
+	if peer >= 0:
 		GDSync.call_func_on_unreliable(peer, _rx_auth, c, _rb_states[c % RB_HIST])
 
 
 func _rx_auth(t: int, state: PackedFloat64Array) -> void:
 	if not _rb or GDSync.is_host() or t < 0 or state.size() != RB_STATE_SIZE:
 		return
-	var sender: int = GDSync.get_sender_id()
-	if not _rb_sender_ok():
-		return
 	for v in state:
 		if not is_finite(v):
-			_rb_flag_suspicious(sender, "bad auth data")
 			return
 	_rb_auth_pending[t] = state
 
@@ -1047,30 +1060,55 @@ func _rb_apply_auth() -> void:
 		var ds: float = absf(auth[9] - mine[9])
 		_err_sum += dp
 		_err_n += 1
-		if dp > 0.3:
-			DebugLog.say("RB", "تصحيح كبير من الـ host: %.2fm (tick %d)" % [dp, t])
+		if dp > _max_err_this_window:
+			_max_err_this_window = dp
+		if log_auth_corrections and dp > 0.20:
+			DebugLog.say("AUTH", "correction @ tick %d | pos_err=%.3fm vel_err=%.2f speed_err=%.2f" % [
+				t, dp, dv, ds])
 		if dp > rb_auth_tolerance or dv > 0.5 or ds > 0.5 or absf(auth[13] - mine[13]) > 0.2:
 			_rb_states[t % RB_HIST] = auth
 			_rb_mark(t)
 			_rb_stat_corrections += 1
-			_auth_diverged_ms = Time.get_ticks_msec()
 
 
 func _rb_log_stats() -> void:
 	_stats_timer += _dt
-	if _stats_timer < 5.0:
+	if _stats_timer < log_interval_sec:
 		return
-	var bans: int = _banned_peers.size()
-	DebugLog.say("RB", "tick=%d | rollbacks %.1f/ث | عمق %.1f | تصحيحات=%d | خطأ %.3fm | مرسل=%d | مرفوض=%d | bans=%d" % [
-		_tick, _rb_stat_rollbacks / _stats_timer,
-		float(_rb_stat_resim_ticks) / maxf(float(_rb_stat_rollbacks), 1.0),
-		_rb_stat_corrections, _err_sum / maxf(float(_err_n), 1.0),
-		_rb_stat_sent, _rb_stat_dropped, bans])
+	
+	var avg_err: float = _err_sum / maxf(float(_err_n), 1.0)
+	var avg_depth: float = float(_rb_stat_resim_ticks) / maxf(float(_rb_stat_rollbacks), 1.0)
+	var input_lag: int = _tick - _rb_remote_latest
+	var sent_per_sec: float = _rb_stat_sent / _stats_timer
+	var skipped_per_sec: float = _rb_stat_skipped / _stats_timer
+	
+	# تقييم الحالة
+	var status: String = "OK"
+	if _rb_stat_rollbacks > 10:
+		status = "HIGH ROLLBACKS"
+	if avg_err > 0.1:
+		status = "HIGH ERROR"
+	if _max_err_this_window > 0.5:
+		status = "LARGE CORRECTION"
+	if input_lag > 30:
+		status = "INPUT LAG"
+	
+	DebugLog.say("STATS", "═══ tick=%d [%s] ═══" % [_tick, status])
+	DebugLog.say("STATS", "  rollbacks: %.1f/s | depth: %.1f ticks" % [
+		_rb_stat_rollbacks / _stats_timer, avg_depth])
+	DebugLog.say("STATS", "  corrections: %d | avg_err: %.3fm | max_err: %.3fm" % [
+		_rb_stat_corrections, avg_err, _max_err_this_window])
+	DebugLog.say("STATS", "  inputs: sent=%.1f/s skipped=%.1f/s | input_lag=%d ticks" % [
+		sent_per_sec, skipped_per_sec, input_lag])
+	DebugLog.say("STATS", "  pos=%s | speed=%.1f | tick=%d" % [global_position, _speed, _tick])
+	
 	_stats_timer = 0.0
 	_rb_stat_rollbacks = 0
 	_rb_stat_resim_ticks = 0
 	_rb_stat_corrections = 0
 	_rb_stat_dropped = 0
 	_rb_stat_sent = 0
+	_rb_stat_skipped = 0
 	_err_sum = 0.0
 	_err_n = 0
+	_max_err_this_window = 0.0

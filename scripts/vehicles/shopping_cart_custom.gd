@@ -1,5 +1,6 @@
 extends "res://scripts/vehicles/shopping_cart.gd"
-## Visual chaos + موديلات مخصصة. بيضيف إحساس Drift في اللفات.
+## scripts/vehicles/shopping_cart_custom.gd
+## نسخة العربية بالموديلات المخصصة + الفيزياء المضحكة (Chaos).
 
 const CART_FILES: Array = ["res://assets/models/shopping_cart.glb", "res://assets/models/model.glb"]
 const CARTON_FILES: Array = ["res://assets/models/egg_carton.glb"]
@@ -13,7 +14,6 @@ const MELON_FILES: Array = ["res://assets/models/watermelon.glb", "res://assets/
 @export var shimmy_strength: float = 0.2
 @export var skid_strength: float = 0.3
 @export var chaos_gain: float = 0.25
-@export var drift_yaw_vis: float = 0.35
 
 
 func _ready() -> void:
@@ -38,31 +38,19 @@ func _process(delta: float) -> void:
 
 	var speed_frac: float = clampf(absf(_speed) / max_speed, 0.0, 1.0)
 	var gate: float = smoothstep(0.0, 0.15, speed_frac)
-	
-	var lean_target = _steer_smooth * max_lean * speed_frac
-	var air_tilt = clampf(velocity.y * 0.02, -0.2, 0.2)
-	
-	_vis_lean = lerpf(_vis_lean, lean_target, 1.0 - exp(-12.0 * delta))
-	
-	if gate > 0.0 and _grounded:
-		var t: float = Time.get_ticks_msec() / 1000.0
-		var pull: float = (0.7 * sin(t * 0.45) + 0.5 * sin(t * 1.13)) * pull_strength
-		var shimmy: float = sin(t * 14.0) * speed_frac * shimmy_strength
-		var skid: float = sin(t * 6.0) * _brake_smooth * skid_strength
+	if gate <= 0.0:
+		return
 
-		var chaos_z: float = (pull * speed_frac + shimmy + skid) * gate * chaos_gain
-		var chaos_x: float = cos(t * 12.0) * speed_frac * shimmy_strength * 0.5 * gate * chaos_gain
+	var t: float = Time.get_ticks_msec() / 1000.0
+	var pull: float = (0.7 * sin(t * 0.45) + 0.5 * sin(t * 1.13)) * pull_strength
+	var shimmy: float = sin(t * 14.0) * speed_frac * shimmy_strength
+	var skid: float = sin(t * 6.0) * _brake_smooth * skid_strength
 
-		_visual.rotation.z += chaos_z
-		_visual.rotation.x += chaos_x
-		
-		# Drift visual: yaw offset when sliding sideways
-		var drift_yaw = _drift_amount * drift_yaw_vis * signf(_steer_smooth)
-		_visual.rotation.y = lerpf(_visual.rotation.y, drift_yaw, 8.0 * delta)
-	else:
-		_visual.rotation.z = lerpf(_visual.rotation.z, 0.0, 5.0 * delta)
-		_visual.rotation.x = lerpf(_visual.rotation.x, -air_tilt, 5.0 * delta)
-		_visual.rotation.y = lerpf(_visual.rotation.y, 0.0, 8.0 * delta)
+	var chaos_z: float = (pull * speed_frac + shimmy + skid) * gate * chaos_gain
+	var chaos_x: float = cos(t * 12.0) * speed_frac * shimmy_strength * 0.5 * gate * chaos_gain
+
+	_visual.rotation.z += chaos_z
+	_visual.rotation.x += chaos_x
 
 
 func _build_visual() -> void:
@@ -79,7 +67,9 @@ func _build_visual() -> void:
 		var size: Vector3 = _fit_into(fitted, 1.05, true, true)
 		var auto_yaw: float = 90.0 if size.x > size.z * 1.15 else 0.0
 		holder.rotation_degrees.y = model_yaw_degrees + auto_yaw
+		DebugLog.say("VISUAL", "cart model loaded: %s | size=%.2f x %.2f" % [cart_model_path, size.x, size.z])
 	else:
+		DebugLog.say("VISUAL", "cart model NOT FOUND — using placeholder box")
 		super()
 		return
 
@@ -89,8 +79,10 @@ func _build_visual() -> void:
 func _build_items() -> void:
 	var carton: PackedScene = _try_load(_first_existing(CARTON_FILES, ""))
 	if carton == null:
+		DebugLog.say("VISUAL", "egg carton NOT FOUND — using default")
 		super()
 		return
+	DebugLog.say("VISUAL", "egg carton loaded")
 
 	var root: Node3D = Node3D.new()
 	root.name = "Items"
@@ -101,10 +93,13 @@ func _build_items() -> void:
 	var melon_mesh: SphereMesh = null
 	var melon_mat: ShaderMaterial = null
 	if melon == null:
+		DebugLog.say("VISUAL", "watermelon model NOT FOUND — using sphere")
 		melon_mesh = SphereMesh.new()
 		melon_mesh.radius = 0.18
 		melon_mesh.height = 0.36
 		melon_mat = _melon_material()
+	else:
+		DebugLog.say("VISUAL", "watermelon model loaded: %s" % watermelon_model_path)
 
 	for sx in [-0.135, 0.135]:
 		_make_item(root, Vector3(float(sx), basket_floor_y + 0.13, -0.28), melon, 0.34, melon_mesh, Vector3(0.75, 0.7, 1.0), melon_mat, 140.0, 12.0, 0.002, 0.02)
