@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://c06i7ld1io6jl"]
 
-[ext_resource type="Script" uid="uid://b5i6m87h325h2" path="res://scripts/vehicles/shopping_cart.gd" id="1_t2wvs"]
+[ext_resource type="Script" uid="uid://dmdn26lwwkhu0" path="res://scripts/vehicles/shopping_cart_custom.gd" id="1_t2wvs"]
 [ext_resource type="Script" uid="uid://dc23l1vvcgf4c" path="res://scripts/vehicles/cart_editor_preview.gd" id="2_preview"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_basket"]
