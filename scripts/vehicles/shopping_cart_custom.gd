@@ -1,6 +1,5 @@
 extends "res://scripts/vehicles/shopping_cart.gd"
 ## scripts/vehicles/shopping_cart_custom.gd
-## نسخة العربية بالموديلات المخصصة + الفيزياء المضحكة (Chaos).
 
 const CART_FILES: Array = ["res://assets/models/shopping_cart.glb", "res://assets/models/model.glb"]
 const CARTON_FILES: Array = ["res://assets/models/egg_carton.glb"]
@@ -67,9 +66,7 @@ func _build_visual() -> void:
 		var size: Vector3 = _fit_into(fitted, 1.05, true, true)
 		var auto_yaw: float = 90.0 if size.x > size.z * 1.15 else 0.0
 		holder.rotation_degrees.y = model_yaw_degrees + auto_yaw
-		DebugLog.say("VISUAL", "cart model loaded: %s | size=%.2f x %.2f" % [cart_model_path, size.x, size.z])
 	else:
-		DebugLog.say("VISUAL", "cart model NOT FOUND — using placeholder box")
 		super()
 		return
 
@@ -79,10 +76,8 @@ func _build_visual() -> void:
 func _build_items() -> void:
 	var carton: PackedScene = _try_load(_first_existing(CARTON_FILES, ""))
 	if carton == null:
-		DebugLog.say("VISUAL", "egg carton NOT FOUND — using default")
 		super()
 		return
-	DebugLog.say("VISUAL", "egg carton loaded")
 
 	var root: Node3D = Node3D.new()
 	root.name = "Items"
@@ -93,13 +88,10 @@ func _build_items() -> void:
 	var melon_mesh: SphereMesh = null
 	var melon_mat: ShaderMaterial = null
 	if melon == null:
-		DebugLog.say("VISUAL", "watermelon model NOT FOUND — using sphere")
 		melon_mesh = SphereMesh.new()
 		melon_mesh.radius = 0.18
 		melon_mesh.height = 0.36
 		melon_mat = _melon_material()
-	else:
-		DebugLog.say("VISUAL", "watermelon model loaded: %s" % watermelon_model_path)
 
 	for sx in [-0.135, 0.135]:
 		_make_item(root, Vector3(float(sx), basket_floor_y + 0.13, -0.28), melon, 0.34, melon_mesh, Vector3(0.75, 0.7, 1.0), melon_mat, 140.0, 12.0, 0.002, 0.02)

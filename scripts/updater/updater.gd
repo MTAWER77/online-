@@ -77,23 +77,50 @@ func _apply_installed_patch() -> void:
 func _check_and_download() -> void:
 	print("UPDATE DEBUG: --- _check_and_download ---")
 	_status.text = "بنفحص التحديثات..."
+	
+	# 1. تحميل version.json
 	var http := HTTPRequest.new()
 	http.timeout = request_timeout
 	add_child(http)
-
 	if http.request(version_url) != OK:
 		http.queue_free()
 		_status.text = "تعذر الاتصال"
 		return
-
 	var response: Array = await http.request_completed
 	http.queue_free()
 
 	if response[0] != HTTPRequest.RESULT_SUCCESS or response[1] != 200:
 		_status.text = "مفيش اتصال، بنكمل بالنسخة الحالية"
 		return
+	var json_bytes: PackedByteArray = response[3]
 
-	var data: Variant = JSON.parse_string(response[3].get_string_from_utf8())
+	# 2. تحميل version.json.sig
+	var sig_url := version_url + ".sig"
+	var http_sig := HTTPRequest.new()
+	http_sig.timeout = request_timeout
+	add_child(http_sig)
+	if http_sig.request(sig_url) != OK:
+		http_sig.queue_free()
+		_status.text = "تعذر تحميل توقيع التحديث"
+		return
+	var res_sig: Array = await http_sig.request_completed
+	http_sig.queue_free()
+
+	if res_sig[0] != HTTPRequest.RESULT_SUCCESS or res_sig[1] != 200:
+		_status.text = "توقيع التحديث غير متوفر"
+		return
+	var sig_bytes: PackedByteArray = res_sig[3]
+
+	# 3. التحقق من توقيع version.json
+	print("UPDATE DEBUG: Verifying version.json signature...")
+	if not _verify_bytes_signature(json_bytes, sig_bytes):
+		_status.text = "ملف التحديث غير موثوق!"
+		print("UPDATE DEBUG: ERROR! version.json signature verification FAILED.")
+		return
+	print("UPDATE DEBUG: version.json signature verified OK.")
+
+	# 4. قراءة البيانات وتكملة التحديث
+	var data: Variant = JSON.parse_string(json_bytes.get_string_from_utf8())
 	if not data is Dictionary: return
 
 	var remote_build := int(data.get("build", 0))
@@ -107,11 +134,10 @@ func _check_and_download() -> void:
 		return
 
 	var pck_url := str(data.get("pck_url", ""))
-	var sig_url := str(data.get("sig_url", ""))
+	var pck_sig_url := str(data.get("sig_url", ""))
 
-	if pck_url.is_empty() or sig_url.is_empty(): return
-	await _download_and_install(pck_url, sig_url, remote_build)
-
+	if pck_url.is_empty() or pck_sig_url.is_empty(): return
+	await _download_and_install(pck_url, pck_sig_url, remote_build)
 func _download_and_install(pck_url: String, sig_url: String, build: int) -> void:
 	_status.text = "بننزّل التحديث..."
 	_bar.value = 0
@@ -157,6 +183,24 @@ func _download_file(url: String, save_path: String, p_from: float, p_to: float) 
 # التحقق من التوقيع باستخدام RSA
 # التحقق من التوقيع باستخدام RSA (النسخة النهائية)
 # التحقق من التوقيع باستخدام RSA (النسخة النهائية المضمونة)
+# التحقق من التوقيع لأي ملف
+func _verify_bytes_signature(data_bytes: PackedByteArray, sig_bytes: PackedByteArray) -> bool:
+	if data_bytes.is_empty() or sig_bytes.is_empty(): 
+		return false
+
+	var key := CryptoKey.new()
+	if key.load_from_string(GameVersion.PUBLIC_KEY, true) != OK:
+		return false
+	
+	var hashing := HashingContext.new()
+	hashing.start(HashingContext.HASH_SHA256)
+	hashing.update(data_bytes)
+	var hash := hashing.finish()
+	
+	var crypto := Crypto.new()
+	return crypto.verify(HashingContext.HASH_SHA256, hash, sig_bytes, key)
+
+# دالة التحقق من ملف التحديث pck (بقت بتستدعي الدالة العامة)
 func _verify_patch_signature(pck_path: String, sig_path: String) -> bool:
 	if not FileAccess.file_exists(pck_path) or not FileAccess.file_exists(sig_path): 
 		return false
@@ -164,46 +208,28 @@ func _verify_patch_signature(pck_path: String, sig_path: String) -> bool:
 	var pck_bytes := FileAccess.get_file_as_bytes(pck_path)
 	var sig_bytes := FileAccess.get_file_as_bytes(sig_path)
 	
-	if pck_bytes.is_empty() or sig_bytes.is_empty():
-		print("UPDATE DEBUG: Empty file data.")
-		return false
-
 	print("UPDATE DEBUG: PCK Size = ", pck_bytes.size(), " | SIG Size = ", sig_bytes.size())
-
-	var key := CryptoKey.new()
-	var err := key.load_from_string(GameVersion.PUBLIC_KEY, true)
-	if err != OK:
-		print("UPDATE DEBUG: Failed to load RSA public key! Error: ", err)
-		return false
+	var result := _verify_bytes_signature(pck_bytes, sig_bytes)
 	
-	# 1. حساب الـ Hash بتاع الملف (لازم يكون 32 بايت)
-	var hashing := HashingContext.new()
-	hashing.start(HashingContext.HASH_SHA256)
-	hashing.update(pck_bytes)
-	var pck_hash := hashing.finish()
+	if result: print("UPDATE DEBUG: Patch RSA signature verified OK.")
+	else: print("UPDATE DEBUG: Patch RSA signature FAILED.")
 	
-	print("UPDATE DEBUG: Hash Size = ", pck_hash.size())
-	
-	# 2. تمرير الـ Hash (مش الملف) لدالة التحقق
-	var crypto := Crypto.new()
-	var verified := crypto.verify(HashingContext.HASH_SHA256, pck_hash, sig_bytes, key)
-	
-	if not verified:
-		print("UPDATE DEBUG: RSA signature verification FAILED.")
-	else:
-		print("UPDATE DEBUG: RSA signature verified OK.")
-	
-	return verified
+	return result
 func _install_patch(temp_pck: String, temp_sig: String, build: int) -> bool:
 	print("UPDATE DEBUG: --- _install_patch ---")
 	var pck_abs := ProjectSettings.globalize_path(GameVersion.PATCH_FILE)
 	var sig_abs := ProjectSettings.globalize_path(GameVersion.SIGNATURE_FILE)
 	
-	_remove_file(GameVersion.BACKUP_FILE)
-	_remove_file(GameVersion.BACKUP_SIG_FILE)
+	# [إصلاح 1]: شيلنا أمر مسح النسخة الاحتياطية من هنا (كان بيتمسح بدري)
 	
-	if FileAccess.file_exists(GameVersion.PATCH_FILE):
+	# عمل نسخة احتياطية للقديم لو موجود
+	var had_old_patch := FileAccess.file_exists(GameVersion.PATCH_FILE)
+	if had_old_patch:
 		print("UPDATE DEBUG: Moving old patch to backup.")
+		# لو فيه باك أب قديم جداً من محاولة سابقة، بنمسحه الأول عشان ننقل الجديد
+		_remove_file(GameVersion.BACKUP_FILE)
+		_remove_file(GameVersion.BACKUP_SIG_FILE)
+		
 		DirAccess.rename_absolute(pck_abs, ProjectSettings.globalize_path(GameVersion.BACKUP_FILE))
 		if FileAccess.file_exists(GameVersion.SIGNATURE_FILE):
 			DirAccess.rename_absolute(sig_abs, ProjectSettings.globalize_path(GameVersion.BACKUP_SIG_FILE))
@@ -214,7 +240,10 @@ func _install_patch(temp_pck: String, temp_sig: String, build: int) -> bool:
 
 	print("UPDATE DEBUG: Loading new resource pack...")
 	if not ProjectSettings.load_resource_pack(GameVersion.PATCH_FILE, true): 
-		print("UPDATE DEBUG: Failed to load new patch.")
+		print("UPDATE DEBUG: Failed to load new patch. Rolling back.")
+		_remove_file(GameVersion.PATCH_FILE)
+		_remove_file(GameVersion.SIGNATURE_FILE)
+		_restore_backup(had_old_patch) # استرجاع القديم فوراً
 		return false
 
 	print("UPDATE DEBUG: Writing build number to file.")
@@ -223,11 +252,41 @@ func _install_patch(temp_pck: String, temp_sig: String, build: int) -> bool:
 		marker.store_string(str(build))
 		marker.close()
 		print("UPDATE DEBUG: Successfully wrote build %d to file" % build)
+		
+		# [إصلاح 2]: مسح النسخة الاحتياطية بيحصل هنا بس، بعد نجاح كل حاجة
+		_remove_file(GameVersion.BACKUP_FILE)
+		_remove_file(GameVersion.BACKUP_SIG_FILE)
 		return true
 	else:
-		print("UPDATE DEBUG: FAILED to write BUILD_FILE")
+		print("UPDATE DEBUG: FAILED to write BUILD_FILE. Rolling back.")
+		_remove_file(GameVersion.PATCH_FILE)
+		_remove_file(GameVersion.SIGNATURE_FILE)
+		_restore_backup(had_old_patch) # استرجاع القديم فوراً
 		return false
+		
+func _restore_backup(had_old_patch: bool) -> void:
+	if not had_old_patch:
+		return
+	
+	print("UPDATE DEBUG: Restoring backup patch...")
+	var backup_pck_abs := ProjectSettings.globalize_path(GameVersion.BACKUP_FILE)
+	var backup_sig_abs := ProjectSettings.globalize_path(GameVersion.BACKUP_SIG_FILE)
+	var pck_abs := ProjectSettings.globalize_path(GameVersion.PATCH_FILE)
+	var sig_abs := ProjectSettings.globalize_path(GameVersion.SIGNATURE_FILE)
 
+	# مسح الملفات الجديدة الفاشلة لو موجودة
+	if FileAccess.file_exists(GameVersion.PATCH_FILE):
+		DirAccess.remove_absolute(pck_abs)
+	if FileAccess.file_exists(GameVersion.SIGNATURE_FILE):
+		DirAccess.remove_absolute(sig_abs)
+
+	# إرجاع الملفات القديمة
+	if FileAccess.file_exists(GameVersion.BACKUP_FILE):
+		DirAccess.rename_absolute(backup_pck_abs, pck_abs)
+	if FileAccess.file_exists(GameVersion.BACKUP_SIG_FILE):
+		DirAccess.rename_absolute(backup_sig_abs, sig_abs)
+	
+	print("UPDATE DEBUG: Backup restored successfully.")
 func _finish(msg: String) -> void:
 	_status.text = msg
 	_bar.visible = false

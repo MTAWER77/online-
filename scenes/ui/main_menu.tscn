@@ -1,6 +1,7 @@
 [gd_scene format=3 uid="uid://cjg18bj8foeyt"]
 
 [ext_resource type="Script" uid="uid://bg0pccskbl7j" path="res://scripts/ui/main_menu.gd" id="1_menu"]
+[ext_resource type="Texture2D" uid="uid://crwhi74mb6by3" path="res://icon.svg" id="2_fe2o3"]
 
 [node name="MainMenu" type="Control" unique_id=808820949]
 layout_mode = 3
@@ -13,16 +14,9 @@ script = ExtResource("1_menu")
 
 [node name="Center" type="CenterContainer" parent="." unique_id=1971733353]
 layout_mode = 1
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -170.0
-offset_top = -104.0
-offset_right = 170.0
-offset_bottom = 104.0
-grow_horizontal = 2
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_right = 340.0
 grow_vertical = 2
 
 [node name="Content" type="VBoxContainer" parent="Center" unique_id=861445920]
@@ -127,3 +121,7 @@ text = "Start"
 unique_name_in_owner = true
 layout_mode = 2
 text = "Leave"
+
+[node name="Icon" type="Sprite2D" parent="." unique_id=1604431282]
+position = Vector2(585, 443)
+texture = ExtResource("2_fe2o3")
