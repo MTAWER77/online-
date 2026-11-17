@@ -15,7 +15,7 @@ version="1.0.2"
 [application]
 
 config/name="Online game"
-run/main_scene="uid://cjg18bj8foeyt"
+run/main_scene="uid://rbq6bqir1tg2"
 config/features=PackedStringArray("4.7", "Forward Plus")
 boot_splash/bg_color=Color(0, 0, 0, 1)
 config/icon="res://icon.svg"
