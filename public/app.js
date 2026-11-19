@@ -1,4 +1,3 @@
-
 (() => {
 'use strict';
 
@@ -6,26 +5,34 @@ const $ = (s) => document.querySelector(s);
 const R = window.NovaRender;
 
 const el = {
-  sidebar: $('#sidebar'),
-  scrim: $('#scrim'),
-  list: $('#chatList'),
-  msgs: $('#messages'),
-  input: $('#input'),
-  form: $('#composer'),
-  send: $('#sendBtn'),
-  title: $('#title'),
-  toast: $('#toast'),
-  install: $('#installBtn'),
-  menu: $('#menuBtn'),
-  newChat: $('#newChat'),
-  settings: $('#settings'),
-  settingsBtn: $('#settingsBtn'),
+  sidebar: $('#sidebar'), scrim: $('#scrim'), list: $('#chatList'), msgs: $('#messages'),
+  input: $('#input'), form: $('#composer'), send: $('#sendBtn'), title: $('#title'),
+  toast: $('#toast'), install: $('#installBtn'), menu: $('#menuBtn'), newChat: $('#newChat'),
+  settings: $('#settings'), settingsBtn: $('#settingsBtn'),
+
+  attachBtn: $('#attachBtn'),
+  attachMenu: $('#attachMenu'),
+  fileInput: $('#fileInput'),
+  imageInput: $('#imageInput'),
+  attachmentTray: $('#attachmentTray'),
 };
 
 const KEY = 'nova_ai_chats_v1';
 const ACTIVE_KEY = 'nova_ai_active_v1';
 const SET_KEY = 'nova_ai_settings_v1';
 const MAX_CONTEXT = 12;
+
+const MAX_FILES = 5;
+const MAX_FILE_SIZE = 1024 * 1024;
+const MAX_FILE_CHARS = 20000;
+
+const SUPPORTED_EXTENSIONS = [
+  'gd', 'tscn', 'tres', 'gdshader', 'shader',
+  'json', 'txt', 'md', 'csv', 'xml',
+  'html', 'css', 'js', 'py', 'ini', 'cfg', 'log'
+];
+
+let pendingFiles = [];
 
 const svg = (d, s = 16) =>
   `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
@@ -36,59 +43,34 @@ const IC = {
   copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
   refresh: '<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/>',
+  file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>',
+  close: '<path d="m18 6-12 12M6 6l12 12"/>',
 };
 
 const COPY_HTML = svg(IC.copy, 14) + '<span>نسخ</span>';
 
 const SUGGESTIONS = [
-  {
-    h: 'اشرح لي',
-    s: 'الـ closures في JavaScript بمثال بسيط',
-    q: 'اشرح لي الـ closures في JavaScript بمثال بسيط'
-  },
-  {
-    h: 'Write code',
-    s: 'A Python function to merge two sorted lists',
-    q: 'Write a Python function to merge two sorted lists, with a short explanation.'
-  },
-  {
-    h: 'قارن',
-    s: 'REST مقابل GraphQL في جدول مختصر',
-    q: 'قارن بين REST و GraphQL في جدول مختصر'
-  },
-  {
-    h: 'Brainstorm',
-    s: 'Name ideas for a productivity app',
-    q: 'Give me 10 creative name ideas for a productivity app, with a short reason for each.'
-  },
+  { h: 'اشرح لي', s: 'الـ closures في JavaScript بمثال بسيط', q: 'اشرح لي الـ closures في JavaScript بمثال بسيط' },
+  { h: 'Write code', s: 'A Python function to merge two sorted lists', q: 'Write a Python function to merge two sorted lists, with a short explanation.' },
+  { h: 'قارن', s: 'REST مقابل GraphQL في جدول مختصر', q: 'قارن بين REST و GraphQL في جدول مختصر' },
+  { h: 'Brainstorm', s: 'Name ideas for a productivity app', q: 'Give me 10 creative name ideas for a productivity app, with a short reason for each.' },
 ];
 
-const FS = {
-  s: '14.5px',
-  m: '16px',
-  l: '18px'
-};
+const FS = { s: '14.5px', m: '16px', l: '18px' };
 
 let chats = readChats();
 let activeId = readStore(ACTIVE_KEY) || null;
 let settings = readSettings();
-
-let busy = false;
-let deferredPrompt = null;
-let toastTimer = null;
+let busy = false, deferredPrompt = null, toastTimer = null;
 
 function readStore(k) {
-  try {
-    return localStorage.getItem(k);
-  } catch {
-    return null;
-  }
+  try { return localStorage.getItem(k); }
+  catch { return null; }
 }
 
 function readChats() {
   try {
     const v = JSON.parse(readStore(KEY));
-
     return Array.isArray(v)
       ? v.filter((c) => c && c.id && Array.isArray(c.messages))
       : [];
@@ -99,10 +81,7 @@ function readChats() {
 
 function readSettings() {
   try {
-    return Object.assign(
-      { fs: 'm' },
-      JSON.parse(readStore(SET_KEY)) || {}
-    );
+    return Object.assign({ fs: 'm' }, JSON.parse(readStore(SET_KEY)) || {});
   } catch {
     return { fs: 'm' };
   }
@@ -118,23 +97,17 @@ function save() {
 }
 
 function saveSettings() {
-  try {
-    localStorage.setItem(SET_KEY, JSON.stringify(settings));
-  } catch {}
+  try { localStorage.setItem(SET_KEY, JSON.stringify(settings)); }
+  catch { /* ignore */ }
 }
 
-const uid = () =>
-  Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-
-const current = () =>
-  chats.find((c) => c.id === activeId) || null;
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const current = () => chats.find((c) => c.id === activeId) || null;
 
 function toast(msg) {
   el.toast.textContent = msg;
   el.toast.hidden = false;
-
   clearTimeout(toastTimer);
-
   toastTimer = setTimeout(() => {
     el.toast.hidden = true;
   }, 2800);
@@ -142,30 +115,218 @@ function toast(msg) {
 
 function mk(tag, cls, html) {
   const d = document.createElement(tag);
-
   if (cls) d.className = cls;
   if (html != null) d.innerHTML = html;
-
   return d;
+}
+
+/* ---------- attachments ---------- */
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function getExtension(name) {
+  return name.split('.').pop().toLowerCase();
+}
+
+function renderAttachments() {
+  if (!el.attachmentTray) return;
+
+  el.attachmentTray.innerHTML = '';
+  el.attachmentTray.hidden = pendingFiles.length === 0;
+
+  pendingFiles.forEach((file, index) => {
+    const item = mk('div', 'attachment-item');
+
+    const icon = mk('span', 'attachment-icon', svg(
+      file.kind === 'image' ? IC.file : IC.file, 18
+    ));
+
+    const info = mk('div', 'attachment-info');
+    const name = mk('span', 'attachment-name');
+    name.textContent = file.name;
+
+    const size = mk('span', 'attachment-size');
+    size.textContent = formatSize(file.size);
+
+    info.append(name, size);
+
+    const remove = mk('button', 'attachment-remove', svg(IC.close, 14));
+    remove.type = 'button';
+    remove.setAttribute('aria-label', 'إزالة الملف');
+
+    remove.onclick = () => {
+      pendingFiles.splice(index, 1);
+      renderAttachments();
+    };
+
+    item.append(icon, info, remove);
+    el.attachmentTray.append(item);
+  });
+}
+
+function closeAttachMenu() {
+  if (el.attachMenu) el.attachMenu.hidden = true;
+}
+
+function toggleAttachMenu() {
+  if (!el.attachMenu) return;
+  el.attachMenu.hidden = !el.attachMenu.hidden;
+}
+
+async function handleFiles(fileList, kind) {
+  const files = Array.from(fileList || []);
+
+  for (const file of files) {
+    if (pendingFiles.length >= MAX_FILES) {
+      toast('يمكنك رفع 5 ملفات كحد أقصى.');
+      break;
+    }
+
+    if (file.size > MAX_FILE_SIZE) {
+      toast('حجم الملف أكبر من 1MB: ' + file.name);
+      continue;
+    }
+
+    const isImage = file.type.startsWith('image/');
+
+    if (kind === 'image' && !isImage) {
+      toast('اختر صورة صالحة.');
+      continue;
+    }
+
+    if (kind === 'file' && isImage) {
+      toast('ارفع الصور من خيار رفع الصور.');
+      continue;
+    }
+
+    if (isImage) {
+      pendingFiles.push({
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        kind: 'image',
+        content: ''
+      });
+      continue;
+    }
+
+    const ext = getExtension(file.name);
+
+    if (ext === 'pdf') {
+      toast('قراءة PDF غير مفعّلة حاليًا.');
+      continue;
+    }
+
+    if (!SUPPORTED_EXTENSIONS.includes(ext)) {
+      toast('نوع الملف غير مدعوم: ' + file.name);
+      continue;
+    }
+
+    try {
+      const content = await file.text();
+
+      pendingFiles.push({
+        name: file.name,
+        size: file.size,
+        type: file.type || 'text/plain',
+        kind: 'text',
+        content: content.slice(0, MAX_FILE_CHARS)
+      });
+    } catch {
+      toast('تعذر قراءة الملف: ' + file.name);
+    }
+  }
+
+  renderAttachments();
+}
+
+if (el.attachBtn && el.attachMenu) {
+  el.attachBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleAttachMenu();
+  });
+
+  el.attachMenu.addEventListener('click', (e) => {
+    const option = e.target.closest('[data-attach]');
+    if (!option) return;
+
+    closeAttachMenu();
+
+    if (option.dataset.attach === 'file' && el.fileInput) {
+      el.fileInput.click();
+    }
+
+    if (option.dataset.attach === 'image' && el.imageInput) {
+      el.imageInput.click();
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!el.attachMenu.contains(e.target) && !el.attachBtn.contains(e.target)) {
+      closeAttachMenu();
+    }
+  });
+}
+
+if (el.fileInput) {
+  el.fileInput.addEventListener('change', async () => {
+    await handleFiles(el.fileInput.files, 'file');
+    el.fileInput.value = '';
+  });
+}
+
+if (el.imageInput) {
+  el.imageInput.addEventListener('change', async () => {
+    await handleFiles(el.imageInput.files, 'image');
+    el.imageInput.value = '';
+  });
 }
 
 /* ---------- rendering ---------- */
 
-function rowUser(text) {
+function rowUser(message) {
   const r = mk('div', 'row user');
   const b = mk('div', 'bubble');
-
   b.dir = 'auto';
-  b.textContent = text;
+
+  const text = typeof message === 'string'
+    ? message
+    : (message.content || '');
+
+  if (text) {
+    const content = mk('div', 'user-text');
+    content.textContent = text;
+    b.append(content);
+  }
+
+  if (message && Array.isArray(message.attachments)) {
+    const files = mk('div', 'user-attachments');
+
+    message.attachments.forEach((file) => {
+      const item = mk('div', 'user-attachment');
+      item.innerHTML = svg(IC.file, 14);
+
+      const name = mk('span');
+      name.textContent = file.name;
+
+      item.append(name);
+      files.append(item);
+    });
+
+    b.append(files);
+  }
 
   r.append(b);
-
   return r;
 }
 
 function rowAI(content, idx, isLast) {
   const r = mk('div', 'row ai');
-
   r.dataset.idx = idx;
 
   r.innerHTML =
@@ -173,12 +334,10 @@ function rowAI(content, idx, isLast) {
     R.md(content, COPY_HTML) +
     '</div><div class="acts">' +
     '<button type="button" class="act" data-act="copy">' +
-    svg(IC.copy, 15) +
-    '<span>نسخ الرد</span></button>' +
+    svg(IC.copy, 15) + '<span>نسخ الرد</span></button>' +
     (isLast
       ? '<button type="button" class="act" data-act="regen">' +
-        svg(IC.refresh, 15) +
-        '<span>إعادة التوليد</span></button>'
+        svg(IC.refresh, 15) + '<span>إعادة التوليد</span></button>'
       : '') +
     '</div></div>';
 
@@ -188,40 +347,31 @@ function rowAI(content, idx, isLast) {
 function renderList() {
   el.list.innerHTML = '';
 
-  chats
-    .slice()
-    .sort((a, b) => b.updated - a.updated)
-    .forEach((c) => {
-      const row = mk(
-        'div',
-        'chat-item' + (c.id === activeId ? ' active' : '')
-      );
+  chats.slice().sort((a, b) => b.updated - a.updated).forEach((c) => {
+    const row = mk('div', 'chat-item' + (c.id === activeId ? ' active' : ''));
 
-      const open = mk('button', 'chat-open');
+    const open = mk('button', 'chat-open');
+    open.type = 'button';
+    open.dir = 'auto';
+    open.textContent = c.title;
+    open.onclick = () => {
+      select(c.id);
+      closeSide();
+    };
 
-      open.type = 'button';
-      open.dir = 'auto';
-      open.textContent = c.title;
-      open.onclick = () => {
-        select(c.id);
-        closeSide();
-      };
+    const ren = mk('button', 'chat-act', svg(IC.pen));
+    ren.type = 'button';
+    ren.setAttribute('aria-label', 'إعادة تسمية');
+    ren.onclick = () => rename(c.id);
 
-      const ren = mk('button', 'chat-act', svg(IC.pen));
+    const del = mk('button', 'chat-act del', svg(IC.trash));
+    del.type = 'button';
+    del.setAttribute('aria-label', 'حذف المحادثة');
+    del.onclick = () => removeChat(c.id);
 
-      ren.type = 'button';
-      ren.setAttribute('aria-label', 'إعادة تسمية');
-      ren.onclick = () => rename(c.id);
-
-      const del = mk('button', 'chat-act del', svg(IC.trash));
-
-      del.type = 'button';
-      del.setAttribute('aria-label', 'حذف المحادثة');
-      del.onclick = () => removeChat(c.id);
-
-      row.append(open, ren, del);
-      el.list.append(row);
-    });
+    row.append(open, ren, del);
+    el.list.append(row);
+  });
 }
 
 function renderMessages() {
@@ -241,15 +391,11 @@ function renderMessages() {
 
     SUGGESTIONS.forEach((s) => {
       const b = mk('button', 'card', '<b></b><span></span>');
-
       b.type = 'button';
       b.dir = 'auto';
-
       b.firstChild.textContent = s.h;
       b.lastChild.textContent = s.s;
-
       b.onclick = () => submit(s.q);
-
       w.querySelector('.cards').append(b);
     });
 
@@ -262,7 +408,7 @@ function renderMessages() {
   chat.messages.forEach((m, i) => {
     el.msgs.append(
       m.role === 'user'
-        ? rowUser(m.content)
+        ? rowUser(m)
         : rowAI(m.content, i, i === last)
     );
   });
@@ -284,22 +430,18 @@ function addTyping() {
   );
 
   r.dataset.transient = '1';
-
   el.msgs.append(r);
   scrollDown();
-
   return r;
 }
 
 function showError(text) {
   const r = mk('div', 'row ai');
-
   r.dataset.transient = '1';
 
   const body = mk('div', 'ai-body');
   const box = mk('div', 'errbox');
   const t = mk('div');
-
   t.textContent = '⚠ ' + text;
 
   const b = mk(
@@ -309,7 +451,6 @@ function showError(text) {
   );
 
   b.type = 'button';
-
   b.onclick = () => {
     const c = current();
     if (c) ask(c);
@@ -318,15 +459,12 @@ function showError(text) {
   box.append(t, b);
   body.append(box);
   r.append(body);
-
   el.msgs.append(r);
   scrollDown();
 }
 
 function clearTransient() {
-  el.msgs
-    .querySelectorAll('[data-transient]')
-    .forEach((n) => n.remove());
+  el.msgs.querySelectorAll('[data-transient]').forEach((n) => n.remove());
 }
 
 /* ---------- chats ---------- */
@@ -341,21 +479,16 @@ function newChat() {
 
   chats.push(c);
   activeId = c.id;
-
   save();
   renderList();
   renderMessages();
-
   return c;
 }
 
 function select(id) {
-  if (busy) {
-    return toast('انتظر انتهاء الرد الحالي.');
-  }
+  if (busy) return toast('انتظر انتهاء الرد الحالي.');
 
   activeId = id;
-
   save();
   renderList();
   renderMessages();
@@ -363,7 +496,6 @@ function select(id) {
 
 function rename(id) {
   const c = chats.find((x) => x.id === id);
-
   if (!c) return;
 
   const n = prompt('اسم المحادثة:', c.title);
@@ -371,28 +503,20 @@ function rename(id) {
   if (n && n.trim()) {
     c.title = n.trim().slice(0, 60);
     c.renamed = true;
-
     save();
     renderList();
 
-    if (id === activeId) {
-      el.title.textContent = c.title;
-    }
+    if (id === activeId) el.title.textContent = c.title;
   }
 }
 
 function removeChat(id) {
-  if (busy) {
-    return toast('انتظر انتهاء الرد الحالي.');
-  }
-
+  if (busy) return toast('انتظر انتهاء الرد الحالي.');
   if (!confirm('حذف هذه المحادثة نهائيًا؟')) return;
 
   chats = chats.filter((c) => c.id !== id);
 
-  if (activeId === id) {
-    activeId = null;
-  }
+  if (activeId === id) activeId = null;
 
   save();
   renderList();
@@ -413,29 +537,31 @@ let stopped = false;
 
 function setBusy(v) {
   busy = v;
-
   el.send.innerHTML = v ? STOP_ICON : SEND_ICON;
-
-  el.send.setAttribute(
-    'aria-label',
-    v ? 'إيقاف' : 'إرسال'
-  );
+  el.send.setAttribute('aria-label', v ? 'إيقاف' : 'إرسال');
 }
 
 async function submit(text) {
   text = (text || '').trim();
 
-  if (busy || !text) return;
+  if (busy) return;
+
+  if (!text && pendingFiles.length === 0) return;
 
   const chat = current() || newChat();
 
+  const attachments = pendingFiles.map((f) => ({ ...f }));
+  pendingFiles = [];
+  renderAttachments();
+
   chat.messages.push({
     role: 'user',
-    content: text
+    content: text,
+    attachments
   });
 
   if (chat.messages.length === 1 && !chat.renamed) {
-    chat.title = text.slice(0, 40);
+    chat.title = (text || attachments[0]?.name || 'ملفات مرفقة').slice(0, 40);
   }
 
   chat.updated = Date.now();
@@ -462,7 +588,33 @@ function startLive() {
   };
 }
 
-/* ---------- AI request + progressive typing ---------- */
+function buildApiMessages(messages) {
+  return messages.slice(-MAX_CONTEXT).map((m) => {
+    let content = m.content || '';
+
+    if (m.role === 'user' && Array.isArray(m.attachments)) {
+      for (const file of m.attachments) {
+        if (file.kind === 'text' && file.content) {
+          content +=
+            '\n\n--- بداية الملف: ' + file.name + ' ---\n' +
+            '```text\n' +
+            file.content +
+            '\n```\n' +
+            '--- نهاية الملف: ' + file.name + ' ---';
+        } else if (file.kind === 'image') {
+          content +=
+            '\n\n[تم إرفاق صورة باسم: ' + file.name +
+            '. محتوى الصورة غير متاح للتحليل حاليًا.]';
+        }
+      }
+    }
+
+    return {
+      role: m.role,
+      content
+    };
+  });
+}
 
 async function ask(chat) {
   if (busy) return;
@@ -478,22 +630,14 @@ async function ask(chat) {
   let idle = 0;
   let live = null;
   let text = '';
-  let displayed = 0;
   let raf = 0;
-
   let streamErr = null;
   let finished = false;
   let finish = null;
   let timedOut = false;
-  let lastPaint = 0;
-  let committed = false;
-
-  const TYPE_SPEED = 90;
-  const MAX_BATCH = 5;
 
   const arm = () => {
     clearTimeout(idle);
-
     idle = setTimeout(() => {
       timedOut = true;
       ctrl.abort();
@@ -501,35 +645,23 @@ async function ask(chat) {
   };
 
   const nearBottom = () =>
-    el.msgs.scrollHeight -
-    el.msgs.scrollTop -
-    el.msgs.clientHeight < 140;
+    el.msgs.scrollHeight - el.msgs.scrollTop - el.msgs.clientHeight < 140;
+
+  const paint = () => {
+    raf = 0;
+    if (!live) return;
+
+    const stick = nearBottom();
+    live.md.innerHTML = R.md(text, COPY_HTML);
+
+    if (stick) scrollDown();
+  };
 
   const commit = () => {
-    if (committed) return;
-
-    committed = true;
-
-    if (raf) {
-      cancelAnimationFrame(raf);
-      raf = 0;
-    }
-
     if (!text.trim()) {
       typing.remove();
-
-      if (live) {
-        live.row.remove();
-      }
-
+      if (live) live.row.remove();
       return;
-    }
-
-    displayed = text.length;
-
-    if (live) {
-      live.md.innerHTML = R.md(text, COPY_HTML);
-      live.row.classList.remove('streaming');
     }
 
     chat.messages.push({
@@ -538,12 +670,9 @@ async function ask(chat) {
     });
 
     chat.updated = Date.now();
-
     save();
 
-    if (chat.id === activeId) {
-      renderMessages();
-    }
+    if (chat.id === activeId) renderMessages();
 
     renderList();
 
@@ -552,101 +681,28 @@ async function ask(chat) {
     }
   };
 
-  const paint = (timestamp = 0) => {
-    raf = 0;
-
-    if (!live || committed) return;
-
-    const elapsed = lastPaint
-      ? timestamp - lastPaint
-      : 16;
-
-    lastPaint = timestamp;
-
-    const count = Math.min(
-      text.length - displayed,
-      Math.max(
-        1,
-        Math.floor(TYPE_SPEED * elapsed / 1000)
-      ),
-      MAX_BATCH
-    );
-
-    if (count > 0) {
-      displayed += count;
-    }
-
-    const stick = nearBottom();
-
-    live.md.innerHTML = R.md(
-      text.slice(0, displayed),
-      COPY_HTML
-    );
-
-    if (stick) {
-      scrollDown();
-    }
-
-    if (displayed < text.length) {
-      raf = requestAnimationFrame(paint);
-    } else {
-      lastPaint = 0;
-
-      // لا ننهي الرد إلا بعد انتهاء استقبال النص وعرضه بالكامل
-      if (finished) {
-        commit();
-      }
-    }
-  };
-
-  const schedulePaint = () => {
-    if (
-      !raf &&
-      !committed &&
-      displayed < text.length
-    ) {
-      raf = requestAnimationFrame(paint);
-    }
-  };
-
   try {
     arm();
 
     const res = await fetch('/api/chat', {
       method: 'POST',
-
-      headers: {
-        'Content-Type': 'application/json'
-      },
-
+      headers: { 'Content-Type': 'application/json' },
       signal: ctrl.signal,
-
       body: JSON.stringify({
-        messages: chat.messages
-          .slice(-MAX_CONTEXT)
-          .map(({ role, content }) => ({
-            role,
-            content
-          }))
+        messages: buildApiMessages(chat.messages)
       })
     });
 
     const ct = res.headers.get('content-type') || '';
 
-    if (
-      !res.ok ||
-      !ct.includes('text/event-stream') ||
-      !res.body
-    ) {
+    if (!res.ok || !ct.includes('text/event-stream') || !res.body) {
       let data = null;
 
-      try {
-        data = await res.json();
-      } catch {}
+      try { data = await res.json(); }
+      catch { /* not json */ }
 
       throw new Error(
-        (data && data.error) ||
-        'خطأ من الخادم (' + res.status + ').'
+        (data && data.error) || 'خطأ من الخادم (' + res.status + ').'
       );
     }
 
@@ -656,10 +712,7 @@ async function ask(chat) {
     const parser = R.sseParser((ev) => {
       if (ev.error) {
         streamErr = ev.error;
-        return;
-      }
-
-      if (typeof ev.t === 'string') {
+      } else if (typeof ev.t === 'string') {
         if (!live) {
           typing.remove();
           live = startLive();
@@ -667,22 +720,10 @@ async function ask(chat) {
 
         text += ev.t;
 
-        schedulePaint();
-
-        return;
-      }
-
-      if (ev.done) {
+        if (!raf) raf = requestAnimationFrame(paint);
+      } else if (ev.done) {
         finished = true;
         finish = ev.finish || null;
-
-        if (!text.length) {
-          commit();
-        } else if (displayed >= text.length) {
-          commit();
-        } else {
-          schedulePaint();
-        }
       }
     });
 
@@ -693,48 +734,18 @@ async function ask(chat) {
 
       if (done) break;
 
-      parser.feed(
-        dec.decode(value, { stream: true })
-      );
+      parser.feed(dec.decode(value, { stream: true }));
     }
 
     parser.feed(dec.decode() + '\n');
 
-    if (streamErr) {
-      throw new Error(streamErr);
-    }
+    if (streamErr) throw new Error(streamErr);
 
     if (!finished) {
-      throw new Error(
-        'انقطع الاتصال أثناء استقبال الرد.'
-      );
+      throw new Error('انقطع الاتصال أثناء استقبال الرد.');
     }
 
-    // انتظر حتى تنتهي الكتابة التدريجية قبل إغلاق الرد
-    if (!committed) {
-      if (displayed >= text.length) {
-        commit();
-      } else {
-        await new Promise((resolve) => {
-          const check = () => {
-            if (committed) {
-              resolve();
-              return;
-            }
-
-            if (finished && displayed >= text.length) {
-              commit();
-              resolve();
-              return;
-            }
-
-            requestAnimationFrame(check);
-          };
-
-          check();
-        });
-      }
-    }
+    commit();
 
   } catch (e) {
     if (raf) {
@@ -762,20 +773,15 @@ async function ask(chat) {
         live.row.classList.remove('streaming');
       }
 
-      if (chat.id === activeId) {
-        showError(msg);
-      }
+      if (chat.id === activeId) showError(msg);
     }
 
   } finally {
     clearTimeout(idle);
 
-    if (raf) {
-      cancelAnimationFrame(raf);
-    }
+    if (raf) cancelAnimationFrame(raf);
 
     ctrl = null;
-
     setBusy(false);
   }
 }
@@ -788,7 +794,6 @@ async function copyText(t) {
     return true;
   } catch {
     const a = document.createElement('textarea');
-
     a.value = t;
     a.style.cssText = 'position:fixed;opacity:0';
 
@@ -804,7 +809,6 @@ async function copyText(t) {
     }
 
     a.remove();
-
     return ok;
   }
 }
@@ -819,9 +823,7 @@ el.msgs.addEventListener('click', async (e) => {
 
     cb.innerHTML =
       svg(ok ? IC.check : IC.copy, 14) +
-      '<span>' +
-      (ok ? 'تم النسخ' : 'فشل النسخ') +
-      '</span>';
+      '<span>' + (ok ? 'تم النسخ' : 'فشل النسخ') + '</span>';
 
     setTimeout(() => {
       cb.innerHTML = COPY_HTML;
@@ -831,32 +833,21 @@ el.msgs.addEventListener('click', async (e) => {
   }
 
   const ab = e.target.closest('[data-act]');
-
   if (!ab) return;
 
   const chat = current();
-
   if (!chat) return;
 
   if (ab.dataset.act === 'copy') {
-    const m = chat.messages[
-      +ab.closest('.row').dataset.idx
-    ];
-
-    const ok = m
-      ? await copyText(m.content)
-      : false;
+    const m = chat.messages[+ab.closest('.row').dataset.idx];
+    const ok = m ? await copyText(m.content) : false;
 
     ab.innerHTML =
       svg(ok ? IC.check : IC.copy, 15) +
-      '<span>' +
-      (ok ? 'تم النسخ' : 'فشل النسخ') +
-      '</span>';
+      '<span>' + (ok ? 'تم النسخ' : 'فشل النسخ') + '</span>';
 
     setTimeout(() => {
-      ab.innerHTML =
-        svg(IC.copy, 15) +
-        '<span>نسخ الرد</span>';
+      ab.innerHTML = svg(IC.copy, 15) + '<span>نسخ الرد</span>';
     }, 1500);
 
   } else if (ab.dataset.act === 'regen') {
@@ -885,18 +876,15 @@ el.form.addEventListener('submit', (e) => {
       stopped = true;
       ctrl.abort();
     }
-
     return;
   }
 
   const v = el.input.value;
 
-  if (!v.trim()) return;
+  if (!v.trim() && pendingFiles.length === 0) return;
 
   el.input.value = '';
-
   autosize();
-
   submit(v);
 });
 
@@ -909,25 +897,19 @@ el.input.addEventListener('keydown', (e) => {
   ) {
     e.preventDefault();
 
-    if (!busy) {
-      el.form.requestSubmit();
-    }
+    if (!busy) el.form.requestSubmit();
   }
 });
 
 function autosize() {
   el.input.style.height = 'auto';
-
-  el.input.style.height =
-    Math.min(el.input.scrollHeight, 180) + 'px';
+  el.input.style.height = Math.min(el.input.scrollHeight, 180) + 'px';
 }
 
 el.input.addEventListener('input', autosize);
 
 el.newChat.onclick = () => {
-  if (busy) {
-    return toast('انتظر انتهاء الرد الحالي.');
-  }
+  if (busy) return toast('انتظر انتهاء الرد الحالي.');
 
   newChat();
   closeSide();
@@ -960,14 +942,9 @@ function applyFs() {
     FS[settings.fs] || FS.m
   );
 
-  document
-    .querySelectorAll('#fontSeg button')
-    .forEach((b) => {
-      b.classList.toggle(
-        'on',
-        b.dataset.fs === settings.fs
-      );
-    });
+  document.querySelectorAll('#fontSeg button').forEach((b) => {
+    b.classList.toggle('on', b.dataset.fs === settings.fs);
+  });
 }
 
 el.settingsBtn.onclick = () => {
@@ -976,14 +953,10 @@ el.settingsBtn.onclick = () => {
   el.settings.showModal();
 };
 
-$('#closeSettings').onclick = () => {
-  el.settings.close();
-};
+$('#closeSettings').onclick = () => el.settings.close();
 
 el.settings.addEventListener('click', (e) => {
-  if (e.target === el.settings) {
-    el.settings.close();
-  }
+  if (e.target === el.settings) el.settings.close();
 });
 
 $('#fontSeg').addEventListener('click', (e) => {
@@ -991,7 +964,6 @@ $('#fontSeg').addEventListener('click', (e) => {
 
   if (b) {
     settings.fs = b.dataset.fs;
-
     saveSettings();
     applyFs();
   }
@@ -1004,7 +976,6 @@ $('#exportBtn').onclick = () => {
   );
 
   const a = document.createElement('a');
-
   a.href = URL.createObjectURL(blob);
   a.download = 'nova-ai-chats.json';
 
@@ -1012,15 +983,11 @@ $('#exportBtn').onclick = () => {
   a.click();
   a.remove();
 
-  setTimeout(() => {
-    URL.revokeObjectURL(a.href);
-  }, 1000);
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 };
 
 $('#clearBtn').onclick = () => {
-  if (busy) {
-    return toast('انتظر انتهاء الرد الحالي.');
-  }
+  if (busy) return toast('انتظر انتهاء الرد الحالي.');
 
   if (!confirm('حذف كل المحادثات نهائيًا؟')) return;
 
@@ -1030,7 +997,6 @@ $('#clearBtn').onclick = () => {
   save();
   renderList();
   renderMessages();
-
   el.settings.close();
 };
 
@@ -1038,7 +1004,6 @@ $('#clearBtn').onclick = () => {
 
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
-
   deferredPrompt = e;
   el.install.hidden = false;
 });
@@ -1060,20 +1025,15 @@ window.addEventListener('appinstalled', () => {
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker
-      .register('/sw.js')
-      .catch(() => {});
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
   });
 }
 
-/* ---------- initialization ---------- */
-
-if (!current()) {
-  activeId = null;
-}
+if (!current()) activeId = null;
 
 applyFs();
 renderList();
 renderMessages();
+renderAttachments();
 
 })();
