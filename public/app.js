@@ -420,12 +420,16 @@ function scrollDown() {
   el.msgs.scrollTop = el.msgs.scrollHeight;
 }
 
-function addTyping() {
+function addTyping(fileCount) {
+  const label = fileCount > 0
+    ? 'NOVA يقرأ ' + fileCount + (fileCount === 1 ? ' ملف' : ' ملفات') + ' ويحللها…'
+    : 'NOVA يفكر…';
+
   const r = mk(
     'div',
     'row ai',
     '<div class="ai-body"><div class="think">' +
-    '<i></i><i></i><i></i><span>NOVA يفكر…</span>' +
+    '<i></i><i></i><i></i><span>' + label + '</span>' +
     '</div></div>'
   );
 
@@ -622,7 +626,12 @@ async function ask(chat) {
   setBusy(true);
   clearTransient();
 
-  const typing = addTyping();
+  const lastMsg = chat.messages[chat.messages.length - 1];
+  const fileCount = lastMsg && Array.isArray(lastMsg.attachments)
+    ? lastMsg.attachments.length
+    : 0;
+
+  const typing = addTyping(fileCount);
 
   ctrl = new AbortController();
   stopped = false;
