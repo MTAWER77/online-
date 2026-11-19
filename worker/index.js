@@ -1,5 +1,10 @@
 
-const MODEL = "openai/gpt-oss-120b";
+const MODELS = [
+  "openai/gpt-oss-120b",
+  "openai/gpt-oss-20b",
+  "qwen/qwen3.8-27b",
+];
+
 const API = "https://api.groq.com/openai/v1/chat/completions";
 
 const MAX_MESSAGES = 30;
@@ -34,7 +39,8 @@ export default {
       return json({
         ok: true,
         provider: "Groq",
-        model: MODEL,
+        model: MODELS[0],
+        fallbackModels: MODELS.slice(1),
       });
     }
 
@@ -46,7 +52,9 @@ export default {
       return handleChat(request, env);
     }
 
-    if (env.ASSETS) return env.ASSETS.fetch(request);
+    if (env.ASSETS) {
+      return env.ASSETS.fetch(request);
+    }
 
     return new Response("Not found", { status: 404 });
   },
@@ -54,7 +62,9 @@ export default {
 
 async function handleChat(request, env) {
   if (!env.GROQ_API_KEY) {
-    return json({ error: "GROQ_API_KEY غير موجود في Cloudflare." }, 500);
+    return json({
+      error: "GROQ_API_KEY غير موجود في Cloudflare.",
+    }, 500);
   }
 
   let body;
@@ -91,7 +101,9 @@ async function handleChat(request, env) {
     !messages.length ||
     messages[messages.length - 1].role !== "user"
   ) {
-    return json({ error: "يجب أن تنتهي المحادثة برسالة من المستخدم." }, 400);
+    return json({
+      error: "يجب أن تنتهي المحادثة برسالة من المستخدم.",
+    }, 400);
   }
 
   const total = messages.reduce(
@@ -100,61 +112,99 @@ async function handleChat(request, env) {
   );
 
   if (total > MAX_CHARS) {
-    return json({ error: "المحادثة طويلة جدًا. ابدأ محادثة جديدة." }, 413);
+    return json({
+      error: "المحادثة طويلة جدًا. ابدأ محادثة جديدة.",
+    }, 413);
   }
 
-  let upstream;
+  // تجربة الموديلات بالترتيب تلقائيًا
+  let upstream = null;
+  let selectedModel = null;
+  let lastStatus = 502;
+  let lastDetails = "";
 
-  try {
-    upstream = await fetch(API, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${env.GROQ_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          ...messages,
-        ],
-        max_completion_tokens: 4096,
-        stream: true,
-      }),
-    });
-  } catch (error) {
-    console.error("Groq connection error:", error);
-    return json({ error: "تعذر الاتصال بخدمة Groq." }, 502);
+  for (const model of MODELS) {
+    try {
+      const response = await fetch(API, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${env.GROQ_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: SYSTEM_PROMPT },
+            ...messages,
+          ],
+          max_completion_tokens: 4096,
+          stream: true,
+        }),
+      });
+
+      if (response.ok) {
+        upstream = response;
+        selectedModel = model;
+        break;
+      }
+
+      lastStatus = response.status;
+      lastDetails = await response.text().catch(() => "");
+
+      console.error(
+        `Model ${model} failed:`,
+        response.status,
+        lastDetails.slice(0, 1000)
+      );
+
+      // لا فائدة من تجربة موديلات أخرى عند وجود مشكلة
+      // في المفتاح أو الحساب أو الصلاحيات.
+      if ([400, 401, 402, 403].includes(response.status)) {
+        break;
+      }
+
+      // جرّب الموديل التالي عند أخطاء التوفر أو حدود الاستخدام.
+      if (![404, 408, 429, 500, 502, 503, 504].includes(response.status)) {
+        break;
+      }
+    } catch (error) {
+      console.error(`Connection failed for ${model}:`, error);
+      lastStatus = 502;
+      lastDetails = String(error);
+    }
   }
 
-  if (!upstream.ok) {
-    const details = await upstream.text().catch(() => "");
-    console.error(
-      "Groq API error:",
-      upstream.status,
-      details.slice(0, 1500)
-    );
-
-    if (upstream.status === 401) {
+  if (!upstream) {
+    if (lastStatus === 401) {
       return json({ error: "مفتاح Groq غير صالح." }, 502);
     }
 
-    if (upstream.status === 402) {
+    if (lastStatus === 402) {
       return json({ error: "حساب Groq لا يملك رصيدًا كافيًا." }, 502);
     }
 
-    if (upstream.status === 429) {
-      return json({ error: "تم تجاوز حد الاستخدام. حاول لاحقًا." }, 429);
+    if (lastStatus === 403) {
+      return json({ error: "حساب Groq لا يملك صلاحية استخدام الخدمة." }, 502);
+    }
+
+    if (lastStatus === 429) {
+      return json({
+        error: "تم تجاوز حدود استخدام جميع الموديلات المتاحة. حاول لاحقًا.",
+      }, 429);
     }
 
     return json({
-      error: `خطأ من Groq (${upstream.status}).`,
+      error: "تعذر تشغيل الموديلات المتاحة حاليًا. حاول مرة أخرى.",
     }, 502);
   }
 
   if (!upstream.body) {
-    return json({ error: "Groq لم يرجع مجرى بيانات." }, 502);
+    return json({
+      error: "Groq لم يرجع مجرى بيانات.",
+    }, 502);
   }
+
+  console.log("NOVA selected model:", selectedModel);
 
   const stream = new ReadableStream({
     async start(controller) {
