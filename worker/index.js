@@ -20,6 +20,12 @@ const json = (body, status = 200) =>
     },
   });
 
+function sendEvent(controller, data) {
+  controller.enqueue(
+    new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`)
+  );
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -40,9 +46,7 @@ export default {
       return handleChat(request, env);
     }
 
-    if (env.ASSETS) {
-      return env.ASSETS.fetch(request);
-    }
+    if (env.ASSETS) return env.ASSETS.fetch(request);
 
     return new Response("Not found", { status: 404 });
   },
@@ -50,9 +54,7 @@ export default {
 
 async function handleChat(request, env) {
   if (!env.GROQ_API_KEY) {
-    return json({
-      error: "الخادم غير مهيأ: GROQ_API_KEY غير موجود.",
-    }, 500);
+    return json({ error: "GROQ_API_KEY غير موجود في Cloudflare." }, 500);
   }
 
   let body;
@@ -89,28 +91,22 @@ async function handleChat(request, env) {
     !messages.length ||
     messages[messages.length - 1].role !== "user"
   ) {
-    return json({
-      error: "يجب أن تنتهي المحادثة برسالة من المستخدم.",
-    }, 400);
+    return json({ error: "يجب أن تنتهي المحادثة برسالة من المستخدم." }, 400);
   }
 
   const total = messages.reduce(
-    (sum, message) => sum + message.content.length,
+    (sum, m) => sum + m.content.length,
     0
   );
 
   if (total > MAX_CHARS) {
-    return json({
-      error: "المحادثة طويلة جدًا. ابدأ محادثة جديدة.",
-    }, 413);
+    return json({ error: "المحادثة طويلة جدًا. ابدأ محادثة جديدة." }, 413);
   }
 
-  const startedAt = Date.now();
-
-  let response;
+  let upstream;
 
   try {
-    response = await fetch(API, {
+    upstream = await fetch(API, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -119,80 +115,149 @@ async function handleChat(request, env) {
       body: JSON.stringify({
         model: MODEL,
         messages: [
-          {
-            role: "system",
-            content: SYSTEM_PROMPT,
-          },
+          { role: "system", content: SYSTEM_PROMPT },
           ...messages,
         ],
         max_completion_tokens: 4096,
-        stream: false,
+        stream: true,
       }),
     });
   } catch (error) {
     console.error("Groq connection error:", error);
-
-    return json({
-      error: "تعذر الاتصال بخدمة Groq. حاول مرة أخرى.",
-    }, 502);
+    return json({ error: "تعذر الاتصال بخدمة Groq." }, 502);
   }
 
-  if (!response.ok) {
-    const details = await response.text().catch(() => "");
-
+  if (!upstream.ok) {
+    const details = await upstream.text().catch(() => "");
     console.error(
       "Groq API error:",
-      response.status,
+      upstream.status,
       details.slice(0, 1500)
     );
 
-    if (response.status === 401) {
-      return json({
-        error: "مفتاح Groq غير صالح. راجع GROQ_API_KEY.",
-      }, 502);
+    if (upstream.status === 401) {
+      return json({ error: "مفتاح Groq غير صالح." }, 502);
     }
 
-    if (response.status === 402) {
-      return json({
-        error: "حساب Groq لا يملك رصيدًا أو صلاحية استخدام كافية.",
-      }, 502);
+    if (upstream.status === 402) {
+      return json({ error: "حساب Groq لا يملك رصيدًا كافيًا." }, 502);
     }
 
-    if (response.status === 429) {
-      return json({
-        error: "تم تجاوز حد الاستخدام المجاني. انتظر قليلًا ثم حاول.",
-      }, 429);
+    if (upstream.status === 429) {
+      return json({ error: "تم تجاوز حد الاستخدام. حاول لاحقًا." }, 429);
     }
 
     return json({
-      error: `حدث خطأ من Groq (${response.status}). راجع سجلات Worker.`,
+      error: `خطأ من Groq (${upstream.status}).`,
     }, 502);
   }
 
-  let data;
-
-  try {
-    data = await response.json();
-  } catch {
-    return json({
-      error: "تعذر قراءة استجابة Groq.",
-    }, 502);
+  if (!upstream.body) {
+    return json({ error: "Groq لم يرجع مجرى بيانات." }, 502);
   }
 
-  const reply = data?.choices?.[0]?.message?.content;
+  const stream = new ReadableStream({
+    async start(controller) {
+      const reader = upstream.body.getReader();
+      const decoder = new TextDecoder();
 
-  if (typeof reply !== "string" || !reply.trim()) {
-    console.error("Empty Groq response:", data);
+      let buffer = "";
+      let finish = null;
+      let closed = false;
 
-    return json({
-      error: "لم يرجع النموذج أي رد. حاول مرة أخرى.",
-    }, 502);
-  }
+      const close = () => {
+        if (!closed) {
+          closed = true;
+          controller.close();
+        }
+      };
 
-  return json({
-    reply,
-    provider: "Groq",
-    model: MODEL,
-    elapsed_ms: Date.now() - startedAt,
+      const fail = (message) => {
+        if (closed) return;
+        sendEvent(controller, { error: message });
+        close();
+      };
+
+      const processLine = (line) => {
+        line = line.trim();
+
+        if (!line.startsWith("data:")) return;
+
+        const raw = line.slice(5).trim();
+
+        if (!raw || raw === "[DONE]") return;
+
+        let chunk;
+
+        try {
+          chunk = JSON.parse(raw);
+        } catch {
+          return;
+        }
+
+        const choice = chunk.choices?.[0];
+        const content = choice?.delta?.content;
+
+        if (typeof content === "string" && content.length) {
+          sendEvent(controller, { t: content });
+        }
+
+        if (choice?.finish_reason) {
+          finish = choice.finish_reason;
+        }
+      };
+
+      try {
+        while (!closed) {
+          const { done, value } = await reader.read();
+
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            processLine(line);
+          }
+        }
+
+        buffer += decoder.decode();
+
+        if (buffer.trim()) {
+          processLine(buffer);
+        }
+
+        sendEvent(controller, {
+          done: true,
+          finish: finish === "length" ? "MAX_TOKENS" : finish,
+        });
+
+        close();
+      } catch (error) {
+        console.error("Groq streaming error:", error);
+        fail("انقطع الاتصال أثناء استقبال الرد.");
+      } finally {
+        try {
+          reader.releaseLock();
+        } catch {}
+      }
+    },
+
+    async cancel() {
+      try {
+        await upstream.body.cancel();
+      } catch {}
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    },
   });
 }
