@@ -1,13 +1,13 @@
 {
   "name": "NOVA AI",
   "short_name": "NOVA AI",
-  "description": "NOVA AI - مساعد ذكي يعمل بـ Gemini",
+  "description": "NOVA AI - مساعد ذكي",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#090b12",
-  "theme_color": "#090b12",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
   "lang": "ar",
   "dir": "rtl",
   "icons": [

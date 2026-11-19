@@ -58,7 +58,7 @@ function rowUser(text) {
 }
 function rowAI(content, idx, isLast) {
   const r = mk('div', 'row ai'); r.dataset.idx = idx;
-  r.innerHTML = '<div class="av"><img src="/icon.svg" alt=""></div><div class="ai-body"><div class="md">' + R.md(content, COPY_HTML) + '</div><div class="acts">' +
+  r.innerHTML = '<div class="ai-body"><div class="md">' + R.md(content, COPY_HTML) + '</div><div class="acts">' +
     '<button type="button" class="act" data-act="copy">' + svg(IC.copy, 15) + '<span>نسخ الرد</span></button>' +
     (isLast ? '<button type="button" class="act" data-act="regen">' + svg(IC.refresh, 15) + '<span>إعادة التوليد</span></button>' : '') + '</div></div>';
   return r;
@@ -79,7 +79,7 @@ function renderMessages() {
   el.title.textContent = chat ? chat.title : 'NOVA AI';
   el.msgs.innerHTML = '';
   if (!chat || !chat.messages.length) {
-    const w = mk('div', 'welcome', '<img src="/icon.svg" alt=""><h2>مرحبًا في <b>NOVA AI</b></h2><p>كيف أقدر أساعدك اليوم؟ · How can I help you today?</p><div class="cards"></div>');
+    const w = mk('div', 'welcome', '<h2>مرحبًا في <b>NOVA AI</b></h2><p>كيف أقدر أساعدك اليوم؟ · How can I help you today?</p><div class="cards"></div>');
     SUGGESTIONS.forEach((s) => {
       const b = mk('button', 'card', '<b></b><span></span>'); b.type = 'button'; b.dir = 'auto';
       b.firstChild.textContent = s.h; b.lastChild.textContent = s.s; b.onclick = () => submit(s.q);
@@ -93,7 +93,7 @@ function renderMessages() {
 }
 function scrollDown() { el.msgs.scrollTop = el.msgs.scrollHeight; }
 function addTyping() {
-  const r = mk('div', 'row ai', '<div class="av pulse"><img src="/icon.svg" alt=""></div><div class="ai-body"><div class="think"><i></i><i></i><i></i><span>NOVA يفكر…</span></div></div>');
+  const r = mk('div', 'row ai', '<div class="ai-body"><div class="think"><i></i><i></i><i></i><span>NOVA يفكر…</span></div></div>');
   r.dataset.transient = '1'; el.msgs.append(r); scrollDown(); return r;
 }
 function showError(text) {
@@ -101,7 +101,7 @@ function showError(text) {
   const body = mk('div', 'ai-body'), box = mk('div', 'errbox'), t = mk('div'); t.textContent = '⚠ ' + text;
   const b = mk('button', 'btn small', svg(IC.refresh, 15) + '<span>إعادة المحاولة</span>'); b.type = 'button';
   b.onclick = () => { const c = current(); if (c) ask(c); };
-  box.append(t, b); body.append(box); r.append(mk('div', 'av', '<img src="/icon.svg" alt="">'), body); el.msgs.append(r); scrollDown();
+  box.append(t, b); body.append(box); r.append(body); el.msgs.append(r); scrollDown();
 }
 function clearTransient() { el.msgs.querySelectorAll('[data-transient]').forEach((n) => n.remove()); }
 
@@ -139,7 +139,7 @@ async function submit(text) {
   await ask(chat);
 }
 function startLive() {
-  const row = mk('div', 'row ai streaming', '<div class="av pulse"><img src="/icon.svg" alt=""></div><div class="ai-body"><div class="md"></div></div>');
+  const row = mk('div', 'row ai streaming', '<div class="ai-body"><div class="md"></div></div>');
   el.msgs.append(row); return { row, md: row.querySelector('.md') };
 }
 async function ask(chat) {
@@ -199,7 +199,7 @@ async function ask(chat) {
       if (timedOut || e.name === 'AbortError') msg = 'تأخر الرد أو انقطع الاتصال. حاول مرة أخرى.';
       else if (!navigator.onLine) msg = 'لا يوجد اتصال بالإنترنت.';
       else if (e instanceof TypeError) msg = 'انقطع الاتصال بالخادم.';
-      if (live) { live.row.dataset.transient = '1'; live.row.classList.remove('streaming'); live.row.querySelector('.av').classList.remove('pulse'); }
+      if (live) { live.row.dataset.transient = '1'; live.row.classList.remove('streaming'); }
       if (chat.id === activeId) showError(msg);
     }
   } finally {
