@@ -343,7 +343,15 @@ function renderAttachments() {
 
   pendingFiles.forEach((file, index) => {
     const item = mk('div', 'attachment-item');
-    const icon = mk('span', 'attachment-icon', svg(IC.file, 18));
+    if (file.kind === 'image' && file.id && imageDataStore.has(file.id)) {
+      const thumb = mk('img', 'attachment-thumb');
+      thumb.src = imageDataStore.get(file.id);
+      thumb.alt = file.name;
+      item.append(thumb);
+    } else {
+      const icon = mk('span', 'attachment-icon', svg(IC.file, 18));
+      item.append(icon);
+    }
     const info = mk('div', 'attachment-info');
     const name = mk('span', 'attachment-name');
     name.textContent = file.name;
@@ -360,7 +368,7 @@ function renderAttachments() {
       renderAttachments();
     };
 
-    item.append(icon, info, remove);
+    item.append(info, remove);
     el.attachmentTray.append(item);
   });
 }
