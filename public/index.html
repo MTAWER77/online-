@@ -28,10 +28,7 @@
     <div class="side-label">المحادثات</div>
     <nav id="chatList" class="chat-list" aria-label="المحادثات"></nav>
 
-    <div id="userBox" class="user-box" hidden>
-      <div class="user-line"><b id="userName"></b><span id="userQuota"></span></div>
-      <button id="logoutBtn" class="btn small" type="button">تسجيل خروج</button>
-    </div>
+    <button id="quotaBox" class="user-box quota-box" type="button" hidden><span id="quotaText"></span></button>
 
     <button id="settingsBtn" class="btn ghost" type="button">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -118,6 +115,16 @@
     </div>
   </div>
 
+  <div class="act-row" id="activateRow" hidden>
+    <div class="act-head"><span>كود التفعيل</span><small id="codeState"></small></div>
+    <div class="code-line" id="codeForm">
+      <input id="codeInput" type="text" dir="ltr" placeholder="اكتب الكود هنا" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="64">
+      <button id="codeBtn" class="btn small" type="button">تفعيل</button>
+    </div>
+    <button id="codeOff" class="btn small" type="button" hidden>إلغاء التفعيل</button>
+    <p id="codeMsg" class="code-msg" hidden></p>
+  </div>
+
   <div class="set-row">
     <span>تصدير المحادثات (JSON)</span>
     <button id="exportBtn" class="btn small" type="button">تصدير</button>
@@ -130,21 +137,6 @@
 
   <p class="about">NOVA AI · Groq / Gemini / OpenRouter · المحادثات تُحفظ على جهازك فقط.</p>
 </dialog>
-
-<div id="authGate" class="auth-gate" hidden>
-  <form id="authForm" class="auth-card" autocomplete="on">
-    <div class="brand">NOVA <b>AI</b></div>
-    <div class="seg auth-tabs" id="authTabs">
-      <button type="button" data-mode="login" class="on">تسجيل دخول</button>
-      <button type="button" data-mode="register">حساب جديد</button>
-    </div>
-    <input id="authUser" name="username" type="text" dir="ltr" autocomplete="username" placeholder="اسم المستخدم" maxlength="24" required>
-    <input id="authPass" name="password" type="password" dir="ltr" autocomplete="current-password" placeholder="كلمة السر" maxlength="128" required>
-    <p id="authErr" class="auth-err" hidden></p>
-    <button id="authSubmit" class="btn primary" type="submit">دخول</button>
-    <p class="about">الحسابات الجديدة ليها عدد رسائل محدود.</p>
-  </form>
-</div>
 
 <div id="toast" class="toast" hidden></div>
 

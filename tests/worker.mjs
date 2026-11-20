@@ -1,4 +1,4 @@
-// NOVA AI - Multi Provider Worker (v0.6)
+// NOVA AI - Multi Provider Worker (v0.7)
 // Groq primary -> Gemini fallback -> OpenRouter fallback.
 // API keys live ONLY in Cloudflare Worker Secrets (never in frontend or GitHub).
 //
@@ -675,24 +675,28 @@ async function handleGenerateFiles(request, env) {
 }
 
 
-/* ---------------- auth: username/password accounts + message quota ----------------
- * Secrets:  SESSION_SECRET (random string, enables auth), ADMIN_USERNAME + ADMIN_PASSWORD (unlimited account)
- * KV:       AUTH (stores users, usage counters, failed-login counters)
- * Vars:     FREE_LIMIT (default 4 messages per normal account), FREE_PERIOD ("total" default | "daily")
- * If SESSION_SECRET is not set, auth is disabled (open mode) so existing deployments keep working.
+/* ---------------- free quota + activation code ----------------
+ * Anyone can use the app for free: FREE_LIMIT messages (default 4) per device.
+ * Entering a valid activation code (Settings) removes the limit on that device.
+ * Env:  SESSION_SECRET  (random string; enables the whole system - if missing the app is open, no limits)
+ *       ACTIVATION_CODE (one code, or several separated by comma/newline)
+ *       FREE_LIMIT (default 4), FREE_PERIOD ("total" default | "daily")
+ * KV:   AUTH (optional but recommended: server-side counters + a per-IP cap against cookie clearing).
+ *       Without KV the counter lives in a signed cookie.
  */
-const SESSION_TTL_S = 60 * 60 * 24 * 30;
-const COOKIE_NAME = "nova_session";
-const PBKDF2_ITER = 100000;
-const MAX_FAILS = 8;
+const DEV_COOKIE = "nova_dev";
+const PRO_COOKIE = "nova_pro";
+const COOKIE_TTL_S = 60 * 60 * 24 * 365;
+const IP_FACTOR = 5;          // one IP may use FREE_LIMIT * IP_FACTOR free messages across all its devices
+const MAX_FAILS = 10;
 const FAIL_WINDOW_S = 900;
 
-const authEnabled = (env) => !!env.SESSION_SECRET;
+const quotaEnabled = (env) => !!env.SESSION_SECRET;
 const freeLimit = (env) => { const n = parseInt(env.FREE_LIMIT, 10); return Number.isFinite(n) && n >= 0 ? n : 4; };
-const normUser = (u) => String(u || "").trim().toLowerCase();
-const validUsername = (u) => /^[A-Za-z0-9_.\u0600-\u06FF-]{3,24}$/.test(u);
-const isAdminName = (env, u) => !!env.ADMIN_USERNAME && normUser(env.ADMIN_USERNAME) === normUser(u);
-const adminPass = (env) => String(env.ADMIN_PASSWORD || "").trim();
+const activationCodes = (env) => String(env.ACTIVATION_CODE || "").split(/[\n,]/).map((x) => x.trim()).filter(Boolean);
+const isDaily = (env) => env.FREE_PERIOD === "daily";
+const today = () => new Date().toISOString().slice(0, 10);
+const periodTag = (env) => (isDaily(env) ? ":" + today() : "");
 
 const b64u = {
   enc: (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""),
@@ -712,138 +716,136 @@ async function hmac(secret, data) {
   return b64u.enc(await crypto.subtle.sign("HMAC", key, te.encode(data)));
 }
 
-async function hashPassword(password, saltB64, iter = PBKDF2_ITER) {
-  const key = await crypto.subtle.importKey("raw", te.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: b64u.dec(saltB64), iterations: iter }, key, 256);
-  return b64u.enc(bits);
+async function signPayload(env, obj) {
+  const p = b64u.enc(te.encode(JSON.stringify(obj)));
+  return p + "." + (await hmac(env.SESSION_SECRET, p));
 }
 
-async function makeToken(env, username) {
-  const payload = b64u.enc(te.encode(JSON.stringify({ u: username, exp: Math.floor(Date.now() / 1000) + SESSION_TTL_S })));
-  return payload + "." + (await hmac(env.SESSION_SECRET, payload));
-}
-
-async function readSession(request, env) {
-  if (!authEnabled(env)) return null;
-  const m = (request.headers.get("Cookie") || "").match(new RegExp("(?:^|;\\s*)" + COOKIE_NAME + "=([^;]+)"));
-  if (!m) return null;
-  const [payload, sig] = m[1].split(".");
-  if (!payload || !sig || !safeEqual(sig, await hmac(env.SESSION_SECRET, payload))) return null;
+async function verifyPayload(env, token) {
+  if (!token) return null;
+  const [p, sig] = token.split(".");
+  if (!p || !sig || !safeEqual(sig, await hmac(env.SESSION_SECRET, p))) return null;
   try {
-    const data = JSON.parse(new TextDecoder().decode(b64u.dec(payload)));
-    if (!data.u || !data.exp || data.exp < Date.now() / 1000) return null;
-    return { username: data.u, admin: isAdminName(env, data.u) };
+    const o = JSON.parse(new TextDecoder().decode(b64u.dec(p)));
+    return o && o.exp && o.exp > Date.now() / 1000 ? o : null;
   } catch { return null; }
 }
 
-const sessionCookie = (value, maxAge) =>
-  `${COOKIE_NAME}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;
-
-const usageKey = (env, username) => {
-  const base = "use:" + normUser(username);
-  return env.FREE_PERIOD === "daily" ? `${base}:${new Date().toISOString().slice(0, 10)}` : base;
+const getCookie = (request, name) => {
+  const m = (request.headers.get("Cookie") || "").match(new RegExp("(?:^|;\\s*)" + name + "=([^;]+)"));
+  return m ? m[1] : null;
 };
+const cookieStr = (name, value, maxAge) => `${name}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
+const clientIp = (request) => request.headers.get("CF-Connecting-IP") || "unknown";
 
-async function getUsed(env, username) {
-  if (!env.AUTH) return 0;
-  const v = await env.AUTH.get(usageKey(env, username));
-  const n = parseInt(v || "0", 10);
-  return Number.isFinite(n) ? n : 0;
+const codeFingerprint = async (env, code) => (await hmac(env.SESSION_SECRET, "code:" + code)).slice(0, 16);
+
+// A device is "activated" while its pro cookie matches a code that is still configured (removing a code revokes it).
+async function isActivated(request, env) {
+  const o = await verifyPayload(env, getCookie(request, PRO_COOKIE));
+  if (!o || !o.c) return false;
+  for (const code of activationCodes(env)) if (safeEqual(o.c, await codeFingerprint(env, code))) return true;
+  return false;
 }
 
-async function accountState(env, session) {
-  if (!authEnabled(env)) return { authRequired: false, user: null, admin: false, unlimited: true, remaining: null, limit: null };
-  if (!session) return { authRequired: true, user: null, admin: false, unlimited: false, remaining: 0, limit: freeLimit(env) };
-  if (session.admin) return { authRequired: true, user: session.username, admin: true, unlimited: true, remaining: null, limit: null };
-  const used = await getUsed(env, session.username);
+async function readDevice(request, env) {
+  const o = await verifyPayload(env, getCookie(request, DEV_COOKIE));
+  if (o && o.d) return { d: o.d, n: o.n | 0, t: o.t || "", fresh: false };
+  return { d: b64u.enc(crypto.getRandomValues(new Uint8Array(12))), n: 0, t: "", fresh: true };
+}
+const deviceCookie = async (env, dev) =>
+  cookieStr(DEV_COOKIE, await signPayload(env, { d: dev.d, n: dev.n, t: dev.t, exp: Math.floor(Date.now() / 1000) + COOKIE_TTL_S }), COOKIE_TTL_S);
+
+async function usedSoFar(env, dev) {
+  if (env.AUTH) {
+    const v = parseInt((await env.AUTH.get("use:" + dev.d + periodTag(env))) || "0", 10);
+    return Number.isFinite(v) ? v : 0;
+  }
+  return isDaily(env) && dev.t !== today() ? 0 : dev.n;
+}
+
+async function quotaState(request, env) {
+  if (!quotaEnabled(env)) return { limited: false, unlimited: true, activated: false, remaining: null, limit: null };
+  if (await isActivated(request, env)) return { limited: true, unlimited: true, activated: true, remaining: null, limit: null };
+  const dev = await readDevice(request, env);
   const limit = freeLimit(env);
-  return { authRequired: true, user: session.username, admin: false, unlimited: false, remaining: Math.max(0, limit - used), limit, period: env.FREE_PERIOD === "daily" ? "daily" : "total" };
+  const used = dev.fresh ? 0 : await usedSoFar(env, dev);
+  return { limited: true, unlimited: false, activated: false, remaining: Math.max(0, limit - used), limit, period: isDaily(env) ? "daily" : "total" };
 }
 
-async function failedTooMuch(env, username) {
+async function failedTooMuch(request, env) {
   if (!env.AUTH) return false;
-  const n = parseInt((await env.AUTH.get("fail:" + normUser(username))) || "0", 10);
-  return n >= MAX_FAILS;
+  const k = "fail:" + (await hmac(env.SESSION_SECRET, "ip:" + clientIp(request))).slice(0, 20);
+  return (parseInt((await env.AUTH.get(k)) || "0", 10) || 0) >= MAX_FAILS;
 }
-async function noteFail(env, username) {
+async function noteFail(request, env) {
   if (!env.AUTH) return;
-  const k = "fail:" + normUser(username);
-  const n = parseInt((await env.AUTH.get(k)) || "0", 10) + 1;
+  const k = "fail:" + (await hmac(env.SESSION_SECRET, "ip:" + clientIp(request))).slice(0, 20);
+  const n = (parseInt((await env.AUTH.get(k)) || "0", 10) || 0) + 1;
   await env.AUTH.put(k, String(n), { expirationTtl: FAIL_WINDOW_S });
 }
 
-async function handleAuth(request, env, path) {
-  if (path === "/api/me" && !authEnabled(env)) return json(await accountState(env, null), 200, { "Cache-Control": "no-store" });
-  if (!authEnabled(env)) return json({ error: "نظام الحسابات غير مفعّل على الخادم.", code: "auth_disabled" }, 404);
-
-  if (path === "/api/me") {
-    return json(await accountState(env, await readSession(request, env)), 200, { "Cache-Control": "no-store" });
-  }
+async function handleQuota(request, env, path) {
+  const noStore = { "Cache-Control": "no-store" };
+  if (path === "/api/me") return json(await quotaState(request, env), 200, noStore);
   if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
-  if (path === "/api/logout") return json({ ok: true }, 200, { "Set-Cookie": sessionCookie("", 0) });
+  if (!quotaEnabled(env)) return json({ error: "نظام الحدود مش مفعّل على الخادم.", code: "quota_disabled" }, 400);
 
+  if (path === "/api/deactivate") return json({ ok: true }, 200, { "Set-Cookie": cookieStr(PRO_COOKIE, "", 0) });
+
+  // /api/activate
+  const codes = activationCodes(env);
+  if (!codes.length) return json({ error: "كود التفعيل مش مضبوط على الخادم (ACTIVATION_CODE).", code: "no_code" }, 500);
+  if (await failedTooMuch(request, env)) return json({ error: "محاولات كتير غلط. جرّب بعد 15 دقيقة.", code: "locked" }, 429);
   let body;
   try { body = await request.json(); } catch { return json({ error: "طلب JSON غير صالح." }, 400); }
-  const username = String(body.username || "").trim();
-  const password = String(body.password || "");
-  if (!validUsername(username)) return json({ error: "اسم المستخدم لازم يكون من 3 لـ 24 حرف (حروف وأرقام و _ . - فقط).", code: "bad_username" }, 400);
-  if (password.length < 6 || password.length > 128) return json({ error: "كلمة السر لازم تكون من 6 لـ 128 حرف.", code: "bad_password" }, 400);
-
-  const login = async (name) => {
-    const state = await accountState(env, { username: name, admin: isAdminName(env, name) });
-    return json(state, 200, { "Set-Cookie": sessionCookie(await makeToken(env, name), SESSION_TTL_S), "Cache-Control": "no-store" });
-  };
-
-  const needKv = () => json({ error: "التخزين (KV باسم AUTH) مش مربوط على الخادم، فمفيش حسابات عادية. الأدمن بس يقدر يدخل.", code: "no_kv" }, 500);
-
-  if (path === "/api/register") {
-    if (!env.AUTH) return needKv();
-    if (isAdminName(env, username)) return json({ error: "اسم المستخدم ده محجوز.", code: "taken" }, 409);
-    const key = "user:" + normUser(username);
-    if (await env.AUTH.get(key)) return json({ error: "اسم المستخدم ده مستخدم قبل كده.", code: "taken" }, 409);
-    const salt = b64u.enc(crypto.getRandomValues(new Uint8Array(16)));
-    const hash = await hashPassword(password, salt);
-    await env.AUTH.put(key, JSON.stringify({ name: username, salt, hash, iter: PBKDF2_ITER, created: Date.now() }));
-    return login(username);
-  }
-
-  if (path === "/api/login") {
-    if (await failedTooMuch(env, username)) return json({ error: "محاولات كتير غلط. جرّب بعد 15 دقيقة.", code: "locked" }, 429);
-    if (isAdminName(env, username)) {
-      if (adminPass(env) && safeEqual(password.trim(), adminPass(env))) return login(String(env.ADMIN_USERNAME).trim());
-      await noteFail(env, username);
-      return json({ error: "اسم المستخدم أو كلمة السر غلط.", code: "bad_credentials" }, 401);
-    }
-    if (!env.AUTH) return needKv();
-    const raw = await env.AUTH.get("user:" + normUser(username));
-    const rec = raw ? JSON.parse(raw) : null;
-    // Always run one PBKDF2 so response time does not reveal whether the user exists.
-    const got = await hashPassword(password, rec ? rec.salt : b64u.enc(new Uint8Array(16)), rec ? rec.iter : PBKDF2_ITER);
-    if (!rec || !safeEqual(got, rec.hash)) {
-      await noteFail(env, username);
-      return json({ error: "اسم المستخدم أو كلمة السر غلط.", code: "bad_credentials" }, 401);
-    }
-    return login(rec.name);
-  }
-  return json({ error: "Not found" }, 404);
+  const given = String(body.code || "").trim();
+  let match = null;
+  for (const c of codes) if (given && safeEqual(given, c)) match = c;
+  if (!match) { await noteFail(request, env); return json({ error: "الكود غلط.", code: "bad_code" }, 401); }
+  const token = await signPayload(env, { c: await codeFingerprint(env, match), exp: Math.floor(Date.now() / 1000) + COOKIE_TTL_S });
+  return json({ limited: true, unlimited: true, activated: true, remaining: null, limit: null }, 200, { "Set-Cookie": cookieStr(PRO_COOKIE, token, COOKIE_TTL_S), ...noStore });
 }
 
-// Called before every model request. Returns a Response when blocked, otherwise null.
-// A normal account is charged one message here; the admin account is never counted.
+// Runs before every model request. Returns { block?: Response, cookie?: string, undo?: () => Promise<string> }.
+// A free message is counted up front and handed back (undo) if the request fails before any answer starts.
 async function gateRequest(request, env) {
-  if (!authEnabled(env)) return null;
-  const session = await readSession(request, env);
-  if (!session) return json({ error: "سجّل دخولك الأول عشان تستخدم NOVA AI.", code: "auth_required" }, 401);
-  if (session.admin) return null;
-  if (!env.AUTH) return json({ error: "AUTH KV غير مربوط على الخادم.", code: "no_kv" }, 500);
+  if (!quotaEnabled(env)) return {};
+  if (await isActivated(request, env)) return {};
+  const dev = await readDevice(request, env);
   const limit = freeLimit(env);
-  const used = await getUsed(env, session.username);
-  if (used >= limit) {
-    const daily = env.FREE_PERIOD === "daily";
-    return json({ error: daily ? `خلصت رسايلك النهارده (${limit}). ارجع بكرة.` : `خلصت الرسايل المسموحة لحسابك (${limit}). كلّم صاحب الموقع لحساب بدون حدود.`, code: "limit_reached", limit, remaining: 0 }, 429);
+  const used = dev.fresh ? 0 : await usedSoFar(env, dev);
+
+  let ipK = "", ipUsed = 0;
+  if (env.AUTH) {
+    ipK = "ip:" + (await hmac(env.SESSION_SECRET, "ip:" + clientIp(request))).slice(0, 20) + periodTag(env);
+    ipUsed = parseInt((await env.AUTH.get(ipK)) || "0", 10) || 0;
   }
-  await env.AUTH.put(usageKey(env, session.username), String(used + 1), env.FREE_PERIOD === "daily" ? { expirationTtl: 60 * 60 * 48 } : undefined);
-  return null;
+  if (used >= limit || ipUsed >= limit * IP_FACTOR) {
+    return { block: json({
+      error: isDaily(env)
+        ? `خلصت رسايلك المجانية النهارده (${limit}). ادخل كود التفعيل من الإعدادات أو ارجع بكرة.`
+        : `خلصت الرسايل المجانية (${limit}). ادخل كود التفعيل من الإعدادات عشان تكمّل بدون حدود.`,
+      code: "limit_reached", limit, remaining: 0,
+    }, 429) };
+  }
+
+  const put = async (n, ipN) => {
+    dev.n = n; dev.t = today();
+    if (env.AUTH) {
+      await env.AUTH.put("use:" + dev.d + periodTag(env), String(n), isDaily(env) ? { expirationTtl: 172800 } : undefined);
+      await env.AUTH.put(ipK, String(ipN), { expirationTtl: isDaily(env) ? 172800 : 60 * 60 * 24 * 30 });
+    }
+    return deviceCookie(env, dev);
+  };
+  return { cookie: await put(used + 1, ipUsed + 1), undo: () => put(used, ipUsed) };
+}
+
+function withCookie(res, cookie) {
+  if (!cookie) return res;
+  const h = new Headers(res.headers);
+  h.append("Set-Cookie", cookie);
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
 }
 
 /* ---------------- routing ---------------- */
@@ -859,22 +861,24 @@ export default {
         capabilities: { think: p.models.some((m) => !!modelCaps(p.id, m).reasoning), search: p.searchModels.length > 0, vision: p.visionModels.length > 0 },
       }));
       return json({
-        ok: true, version: "0.6", auth: authEnabled(env), authKv: !!env.AUTH, adminConfigured: !!(env.ADMIN_USERNAME && adminPass(env)), primaryProvider: "groq", fallbackOrder: ["gemini", "openrouter"],
+        ok: true, version: "0.7", quota: quotaEnabled(env), quotaKv: !!env.AUTH, activationConfigured: activationCodes(env).length > 0, primaryProvider: "groq", fallbackOrder: ["gemini", "openrouter"],
         providers, maxImagesPerRequest: MAX_IMAGES,
         searchProvider: "Groq Browser Search (Groq keys required); other providers fall back to a no-search answer with a notice",
         note: "Provider/model availability and free-tier limits depend on each provider account.",
       });
     }
 
-    if (["/api/me", "/api/login", "/api/register", "/api/logout"].includes(url.pathname)) {
-      return handleAuth(request, env, url.pathname);
+    if (["/api/me", "/api/activate", "/api/deactivate"].includes(url.pathname)) {
+      return handleQuota(request, env, url.pathname);
     }
 
     if (url.pathname === "/api/chat" || url.pathname === "/api/generate-files") {
       if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
-      const blocked = await gateRequest(request, env);
-      if (blocked) return blocked;
-      return url.pathname === "/api/chat" ? handleChat(request, env) : handleGenerateFiles(request, env);
+      const gate = await gateRequest(request, env);
+      if (gate.block) return gate.block;
+      const res = url.pathname === "/api/chat" ? await handleChat(request, env) : await handleGenerateFiles(request, env);
+      const cookie = !res.ok && gate.undo ? await gate.undo() : gate.cookie;
+      return withCookie(res, cookie);
     }
 
     if (env.ASSETS) return env.ASSETS.fetch(request);

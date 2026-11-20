@@ -1531,7 +1531,6 @@ async function tryStream(chat, run, payload) {
     if (!res.ok || !ct.includes('text/event-stream') || !res.body) {
       let data = null;
       try { data = await res.json(); } catch { /* not json */ }
-      if (res.status === 401) onAuthRequired();
       return { retry: [502, 503, 504, 408].includes(res.status), error: (data && data.error) || `خطأ من الخادم (${res.status}).` };
     }
     const reader = res.body.getReader();
@@ -1592,7 +1591,6 @@ async function runFilesRequest(chat, run, last) {
       try { body = await res.json(); } catch { body = null; }
       rememberLimits(body && body.model, body && body.rateLimits);
       if (res.ok && body && Array.isArray(body.files)) { data = body; break; }
-      if (res.status === 401) onAuthRequired();
       lastError = (body && body.error) || `تعذر توليد الملفات (${res.status}).`;
       if (![502, 503, 504].includes(res.status) || (body && ['truncated', 'bad_json', 'no_keys'].includes(body.code))) break;
     } catch (e) {
@@ -1836,25 +1834,25 @@ if ('serviceWorker' in navigator) {
 }
 
 
-/* ---------- accounts (username/password + message quota) ---------- */
+/* ---------- free messages + activation code ---------- */
 
-const authEl = {
-  gate: $('#authGate'), form: $('#authForm'), tabs: $('#authTabs'), user: $('#authUser'), pass: $('#authPass'),
-  err: $('#authErr'), submit: $('#authSubmit'), box: $('#userBox'), name: $('#userName'), quota: $('#userQuota'), logout: $('#logoutBtn'),
+const quotaEl = {
+  box: $('#quotaBox'), text: $('#quotaText'), row: $('#activateRow'), state: $('#codeState'),
+  form: $('#codeForm'), input: $('#codeInput'), btn: $('#codeBtn'), off: $('#codeOff'), msg: $('#codeMsg'),
 };
-let account = { authRequired: false, user: null, unlimited: true, remaining: null, limit: null };
-let authMode = 'login';
+let account = { limited: false, unlimited: true, activated: false, remaining: null, limit: null };
 
 function renderAccount() {
-  const needLogin = account.authRequired && !account.user;
-  authEl.gate.hidden = !needLogin;
-  authEl.box.hidden = !(account.authRequired && account.user);
-  if (account.user) {
-    authEl.name.textContent = account.user;
-    authEl.quota.textContent = account.unlimited ? 'بدون حدود ∞' : `متبقي ${account.remaining} من ${account.limit}`;
-    authEl.box.classList.toggle('low', !account.unlimited && account.remaining <= 1);
-  }
-  if (needLogin) setTimeout(() => authEl.user.focus(), 50);
+  const a = account;
+  quotaEl.box.hidden = !a.limited;
+  quotaEl.row.hidden = !a.limited;
+  if (!a.limited) return;
+  quotaEl.text.textContent = a.unlimited ? 'مفعّل · بدون حدود ∞' : `متبقي ${a.remaining} من ${a.limit} رسائل مجانية`;
+  quotaEl.box.classList.toggle('low', !a.unlimited && a.remaining <= 1);
+  quotaEl.state.textContent = a.unlimited ? 'مفعّل ✓' : 'غير مفعّل';
+  quotaEl.state.classList.toggle('on', !!a.unlimited);
+  quotaEl.form.hidden = !!a.unlimited;
+  quotaEl.off.hidden = !a.unlimited;
 }
 
 async function refreshAccount() {
@@ -1864,41 +1862,37 @@ async function refreshAccount() {
   } catch { /* offline: keep last known state */ }
 }
 
-function setAuthMode(mode) {
-  authMode = mode;
-  authEl.tabs.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
-  authEl.submit.textContent = mode === 'login' ? 'دخول' : 'إنشاء حساب';
-  authEl.pass.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
-  authEl.err.hidden = true;
+function codeMsg(text, ok) {
+  quotaEl.msg.textContent = text || '';
+  quotaEl.msg.hidden = !text;
+  quotaEl.msg.classList.toggle('ok', !!ok);
 }
-authEl.tabs.addEventListener('click', (e) => { const b = e.target.closest('button[data-mode]'); if (b) setAuthMode(b.dataset.mode); });
 
-authEl.form.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  authEl.err.hidden = true;
-  authEl.submit.disabled = true;
+async function submitCode() {
+  const code = quotaEl.input.value.trim();
+  if (!code) return;
+  quotaEl.btn.disabled = true;
+  codeMsg('');
   try {
-    const res = await fetch(authMode === 'login' ? '/api/login' : '/api/register', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: authEl.user.value.trim(), password: authEl.pass.value }),
-    });
+    const res = await fetch('/api/activate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) { authEl.err.textContent = data.error || `تعذر الدخول (${res.status}).`; authEl.err.hidden = false; return; }
+    if (!res.ok) { codeMsg(data.error || `تعذر التفعيل (${res.status}).`); return; }
     account = data;
-    authEl.pass.value = '';
+    quotaEl.input.value = '';
     renderAccount();
-  } catch {
-    authEl.err.textContent = 'تعذر الاتصال بالخادم.'; authEl.err.hidden = false;
-  } finally { authEl.submit.disabled = false; }
-});
+    codeMsg('تم التفعيل. مفيش حد للرسائل دلوقتي.', true);
+  } catch { codeMsg('تعذر الاتصال بالخادم.'); }
+  finally { quotaEl.btn.disabled = false; }
+}
 
-authEl.logout.onclick = async () => {
-  try { await fetch('/api/logout', { method: 'POST' }); } catch { /* ignore */ }
+quotaEl.btn.onclick = submitCode;
+quotaEl.input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submitCode(); } });
+quotaEl.off.onclick = async () => {
+  try { await fetch('/api/deactivate', { method: 'POST' }); } catch { /* ignore */ }
+  codeMsg('');
   await refreshAccount();
 };
-
-// Called when the server answers 401 (session expired / not logged in).
-function onAuthRequired() { account = { ...account, user: null, authRequired: true }; renderAccount(); }
+quotaEl.box.onclick = () => el.settingsBtn.click();
 
 /* ---------- boot ---------- */
 
