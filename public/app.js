@@ -11,7 +11,7 @@ const el = {
   settings: $('#settings'), settingsBtn: $('#settingsBtn'),
   attachBtn: $('#attachBtn'), attachMenu: $('#attachMenu'),
   fileInput: $('#fileInput'), imageInput: $('#imageInput'),
-  attachmentTray: $('#attachmentTray'),
+  attachmentTray: $('#attachmentTray'), searchToggle: $('#searchToggle'), thinkToggle: $('#thinkToggle'),
 };
 
 const KEY = 'nova_ai_chats_v1';
@@ -21,6 +21,12 @@ const MAX_CONTEXT = 12;
 const MAX_FILES = 5;
 const MAX_FILE_SIZE = 1024 * 1024;
 const MAX_FILE_CHARS = 20000;
+const MAX_IMAGES = 3;
+const MAX_IMAGE_EDGE = 1280;
+const MAX_IMAGE_QUALITY = 0.82;
+const MODEL_STATE_KEY = 'nova_ai_model_state_v1';
+const SEARCH_KEY = 'nova_ai_search_enabled_v1';
+const THINK_KEY = 'nova_ai_think_enabled_v1';
 const MAX_GENERATED_FILES = 20;
 
 const SUPPORTED_EXTENSIONS = [
@@ -30,6 +36,36 @@ const SUPPORTED_EXTENSIONS = [
 ];
 
 let pendingFiles = [];
+// Image data is deliberately kept only in memory, never in chat storage/export.
+const imageDataStore = new Map();
+let searchMode = localStorage.getItem(SEARCH_KEY) === '1';
+let thinkMode = localStorage.getItem(THINK_KEY) === '1';
+if (el.searchToggle) {
+  el.searchToggle.classList.toggle('active', searchMode);
+  el.searchToggle.setAttribute('aria-pressed', String(searchMode));
+  el.searchToggle.addEventListener('click', () => {
+    searchMode = !searchMode;
+    if (searchMode) { thinkMode = false; localStorage.setItem(THINK_KEY, '0'); }
+    if (el.thinkToggle) { el.thinkToggle.classList.toggle('active', thinkMode); el.thinkToggle.setAttribute('aria-pressed', String(thinkMode)); }
+    localStorage.setItem(SEARCH_KEY, searchMode ? '1' : '0');
+    el.searchToggle.classList.toggle('active', searchMode);
+    el.searchToggle.setAttribute('aria-pressed', String(searchMode));
+    toast(searchMode ? 'تم تفعيل البحث على الويب.' : 'تم إيقاف البحث على الويب.');
+  });
+}
+if (el.thinkToggle) {
+  el.thinkToggle.classList.toggle('active', thinkMode);
+  el.thinkToggle.setAttribute('aria-pressed', String(thinkMode));
+  el.thinkToggle.addEventListener('click', () => {
+    thinkMode = !thinkMode;
+    if (thinkMode) { searchMode = false; localStorage.setItem(SEARCH_KEY, '0'); }
+    if (el.searchToggle) { el.searchToggle.classList.toggle('active', searchMode); el.searchToggle.setAttribute('aria-pressed', String(searchMode)); }
+    localStorage.setItem(THINK_KEY, thinkMode ? '1' : '0');
+    el.thinkToggle.classList.toggle('active', thinkMode);
+    el.thinkToggle.setAttribute('aria-pressed', String(thinkMode));
+    toast(thinkMode ? 'تم تفعيل وضع التفكير الأعمق.' : 'تم إيقاف وضع التفكير.');
+  });
+}
 
 const svg = (d, s = 16) =>
   `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
@@ -319,7 +355,8 @@ function renderAttachments() {
     remove.type = 'button';
     remove.setAttribute('aria-label', 'إزالة الملف');
     remove.onclick = () => {
-      pendingFiles.splice(index, 1);
+      const removed = pendingFiles.splice(index, 1)[0];
+      if (removed?.id) imageDataStore.delete(removed.id);
       renderAttachments();
     };
 
@@ -337,59 +374,56 @@ function toggleAttachMenu() {
   el.attachMenu.hidden = !el.attachMenu.hidden;
 }
 
+function imageToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    if (typeof createImageBitmap !== 'function') {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+      return;
+    }
+    createImageBitmap(file).then(bitmap => {
+      const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      bitmap.close?.();
+      resolve(canvas.toDataURL('image/jpeg', MAX_IMAGE_QUALITY));
+    }).catch(reject);
+  });
+}
+
 async function handleFiles(fileList, kind) {
   const files = Array.from(fileList || []);
-
   for (const file of files) {
-    if (pendingFiles.length >= MAX_FILES) {
-      toast('يمكنك رفع 5 ملفات كحد أقصى.');
-      break;
-    }
-    if (file.size > MAX_FILE_SIZE) {
-      toast('حجم الملف أكبر من 1MB: ' + file.name);
-      continue;
-    }
-
+    if (pendingFiles.length >= MAX_FILES) { toast('يمكنك رفع 5 مرفقات كحد أقصى.'); break; }
     const isImage = file.type.startsWith('image/');
-    if (kind === 'image' && !isImage) {
-      toast('اختر صورة صالحة.');
-      continue;
-    }
-    if (kind === 'file' && isImage) {
-      toast('ارفع الصور من خيار رفع الصور.');
-      continue;
-    }
-
+    if (kind === 'image' && !isImage) { toast('اختر صورة صالحة.'); continue; }
+    if (kind === 'file' && isImage) { toast('ارفع الصور من خيار رفع الصور.'); continue; }
     if (isImage) {
-      pendingFiles.push({
-        name: file.name, size: file.size, type: file.type,
-        kind: 'image', content: ''
-      });
+      if (!['image/jpeg','image/png','image/webp','image/gif'].includes(file.type)) { toast('الصيغ المدعومة: JPG وPNG وWEBP وGIF.'); continue; }
+      if (pendingFiles.filter(x => x.kind === 'image').length >= MAX_IMAGES) { toast('يمكنك رفع 3 صور كحد أقصى في الرسالة.'); break; }
+      if (file.size > 8 * 1024 * 1024) { toast('حجم الصورة الأصلي يجب ألا يتجاوز 8MB.'); continue; }
+      try {
+        const id = 'img_' + uid();
+        const dataUrl = await imageToDataUrl(file);
+        imageDataStore.set(id, dataUrl);
+        pendingFiles.push({ id, name:file.name, size:file.size, type:file.type, kind:'image' });
+      } catch { toast('تعذر تجهيز الصورة: ' + file.name); }
       continue;
     }
-
+    if (file.size > MAX_FILE_SIZE) { toast('حجم الملف أكبر من 1MB: ' + file.name); continue; }
     const ext = getExtension(file.name);
-    if (ext === 'pdf') {
-      toast('قراءة PDF غير مفعّلة حاليًا.');
-      continue;
-    }
-    if (!SUPPORTED_EXTENSIONS.includes(ext)) {
-      toast('نوع الملف غير مدعوم: ' + file.name);
-      continue;
-    }
-
+    if (ext === 'pdf') { toast('قراءة PDF غير مفعّلة حاليًا.'); continue; }
+    if (!SUPPORTED_EXTENSIONS.includes(ext)) { toast('نوع الملف غير مدعوم: ' + file.name); continue; }
     try {
       const content = await file.text();
-      pendingFiles.push({
-        name: file.name, size: file.size,
-        type: file.type || 'text/plain',
-        kind: 'text', content: content.slice(0, MAX_FILE_CHARS)
-      });
-    } catch {
-      toast('تعذر قراءة الملف: ' + file.name);
-    }
+      pendingFiles.push({ id:'txt_' + uid(), name:file.name, size:file.size, type:file.type || 'text/plain', kind:'text', content:content.slice(0,MAX_FILE_CHARS) });
+    } catch { toast('تعذر قراءة الملف: ' + file.name); }
   }
-
   renderAttachments();
 }
 
@@ -665,22 +699,58 @@ function startLive() {
 }
 
 function buildApiMessages(messages) {
+  let imageBudget = MAX_IMAGES;
   return messages.slice(-MAX_CONTEXT).map((m) => {
-    let content = m.content || '';
+    let text = m.content || '';
+    const parts = [];
     if (m.role === 'user' && Array.isArray(m.attachments)) {
       for (const file of m.attachments) {
         if (file.kind === 'text' && file.content) {
-          content += '\n\n--- بداية الملف: ' + file.name + ' ---\n' +
-            '```text\n' + file.content + '\n```\n' +
-            '--- نهاية الملف: ' + file.name + ' ---';
-        } else if (file.kind === 'image') {
-          content += '\n\n[تم إرفاق صورة باسم: ' + file.name +
-            '. محتوى الصورة غير متاح للتحليل حاليًا.]';
+          text += '\n\n--- بداية الملف: ' + file.name + ' ---\n```text\n' + file.content + '\n```\n--- نهاية الملف: ' + file.name + ' ---';
         }
       }
+      if (text.trim()) parts.push({type:'text', text});
+      for (const file of m.attachments) {
+        if (file.kind === 'image' && imageBudget > 0) {
+          const data = imageDataStore.get(file.id);
+          if (data) { parts.push({type:'image_url', image_url:{url:data}}); imageBudget--; }
+          else parts.push({type:'text', text:'[الصورة المرفقة ' + file.name + ' لم تعد متاحة بعد إعادة تحميل الصفحة. أعد رفعها للتحليل.]'});
+        }
+      }
+      return {role:m.role, content:parts.length ? parts : text};
     }
-    return { role: m.role, content };
+    return {role:m.role, content:text};
   });
+}
+
+function readModelState() {
+  try { const value = JSON.parse(localStorage.getItem(MODEL_STATE_KEY) || '{}'); return value && typeof value === 'object' ? value : {}; }
+  catch { return {}; }
+}
+function getAvoidModels() {
+  const state = readModelState(), now = Date.now();
+  return Object.keys(state).filter(model => Number(state[model]?.until || 0) > now);
+}
+function parseResetSeconds(value) {
+  if (!value) return 60;
+  const match = String(value).match(/([0-9.]+)\s*(ms|s|m|h)?/i);
+  if (!match) return 60;
+  const amount = Number(match[1]), unit = (match[2] || 's').toLowerCase();
+  return Math.max(30, Math.ceil(amount * (unit === 'ms' ? 0.001 : unit === 'm' ? 60 : unit === 'h' ? 3600 : 1)));
+}
+function rememberModelLimits(res) {
+  const model = res.headers.get('X-NOVA-Model');
+  if (!model) return;
+  let limits = {}; try { limits = JSON.parse(res.headers.get('X-NOVA-Rate-Limits') || '{}'); } catch {}
+  const remainingReq = Number(limits['x-ratelimit-remaining-requests']);
+  const remainingTokens = Number(limits['x-ratelimit-remaining-tokens']);
+  if ((Number.isFinite(remainingReq) && remainingReq <= 1) || (Number.isFinite(remainingTokens) && remainingTokens <= 1000)) {
+    const reset = limits['x-ratelimit-reset-requests'] || limits['x-ratelimit-reset-tokens'] || limits['retry-after'];
+    const state = readModelState();
+    state[model] = {until:Date.now() + parseResetSeconds(reset) * 1000};
+    localStorage.setItem(MODEL_STATE_KEY, JSON.stringify(state));
+  }
+  console.info('[NOVA] model:', model, limits);
 }
 
 function wantsFiles(text) {
@@ -742,8 +812,10 @@ async function ask(chat) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: ctrl.signal,
-      body: JSON.stringify({ messages: buildApiMessages(chat.messages) })
+      body: JSON.stringify({ messages: buildApiMessages(chat.messages), search: searchMode, think: thinkMode, avoidModels: getAvoidModels() })
     });
+    rememberModelLimits(res);
+    if (searchMode && lastMsg?.attachments?.some(a => a.kind === 'image')) throw new Error('أوقف البحث على الويب لتحليل الصور.');
     const ct = res.headers.get('content-type') || '';
     if (!res.ok || !ct.includes('text/event-stream') || !res.body) {
       let data = null;
@@ -818,9 +890,10 @@ async function askGenerateFiles(chat) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: ctrl.signal,
-      body: JSON.stringify({ messages: buildApiMessages(chat.messages) })
+      body: JSON.stringify({ messages: buildApiMessages(chat.messages), avoidModels: getAvoidModels() })
     });
 
+    rememberModelLimits(res);
     let data;
     try { data = await res.json(); }
     catch { throw new Error('الخادم أرجع استجابة غير مفهومة.'); }
