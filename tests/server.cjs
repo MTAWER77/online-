@@ -22,6 +22,8 @@ const srv = http.createServer((req, res) => {
       const who = /AAA/.test(txt) ? 'AAA' : /BBB/.test(txt) ? 'BBB' : 'X';
       if (body.search) res.write('data: {"status":"searching"}\n\n');
       if (body.think && !body.search) res.write('data: {"status":"thinking"}\n\n');
+      if (/reason/.test(txt) && body.think) res.write('data: ' + JSON.stringify({ r: 'خطوة تفكير ١ ' }) + '\n\n');
+      if (/reason/.test(txt) && body.search) res.write('data: ' + JSON.stringify({ sources: [{ title: 'Godot Docs', url: 'https://docs.godotengine.org/en/stable/' }, { title: 'GitHub', url: 'https://github.com/godotengine/godot' }] }) + '\n\n');
       if (state.mode === 'cut') { res.write('data: ' + JSON.stringify({ t: 'partial text ' + who }) + '\n\n'); res.end(); return; }
       const parts = ['رد ' + who + ' ', '**جزء** ', 'ثاني\n\n', '```gdscript\nfunc a():\n\tpass\n```\n\n', 'خاتمة ' + who];
       let i = 0;

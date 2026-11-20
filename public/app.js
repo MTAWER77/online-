@@ -968,7 +968,9 @@ function rowAI(m, idx, isLast, sourceFiles) {
     m.notices.forEach((x) => { const d = mk('div', 'notice'); d.textContent = 'ℹ ' + x.text; n.append(d); });
     body.append(n);
   }
-  if (m.thinkSecs) {
+  if (m.reasoning) body.append(buildReason(m));
+  if (Array.isArray(m.sources) && m.sources.length) body.append(buildSources(m.sources));
+  if (m.thinkSecs && !m.reasoning) {
     const t = mk('div', 'took');
     t.textContent = (m.thinkKind === 'search' ? 'بحث لمدة ' : 'فكّر لمدة ') + m.thinkSecs + ' ثانية';
     body.append(t);
@@ -1114,10 +1116,13 @@ function attachRunNode(run) {
   const row = mk('div', 'row ai streaming');
   row.innerHTML =
     '<div class="ai-body"><div class="think run-status"><i class="orb"></i><span class="lbl"></span><em class="sec"></em></div>' +
+    '<details class="reason" hidden><summary><span class="r-ico"></span><span class="r-title"></span></summary><div class="reason-body" dir="auto"></div></details>' +
+    '<div class="srcs-host"></div>' +
     '<div class="run-notices"></div><div class="md"><div class="md-stable"></div><div class="md-tail"></div></div></div>';
   el.msgs.append(row);
   run.node = {
     row, status: row.querySelector('.run-status'), label: row.querySelector('.run-status .lbl'), sec: row.querySelector('.run-status .sec'),
+    reason: row.querySelector('.reason'), reasonTitle: row.querySelector('.r-title'), reasonBody: row.querySelector('.reason-body'), srcs: row.querySelector('.srcs-host'),
     notices: row.querySelector('.run-notices'), stable: row.querySelector('.md-stable'), tail: row.querySelector('.md-tail'),
   };
   run.stableLen = 0;
@@ -1139,12 +1144,67 @@ function paintNotices(run) {
   run.node.notices.replaceChildren(...run.notices.map((x) => { const d = mk('div', 'notice'); d.textContent = 'ℹ ' + x.text; return d; }));
 }
 
+function paintExtras(run) {
+  const n = run.node;
+  if (run.reasoning) {
+    n.reason.hidden = false;
+    const secs = Math.max(1, Math.round(((run.firstTextAt || Date.now()) - run.t0) / 1000));
+    n.reasonTitle.textContent = run.text ? 'فكّر لمدة ' + secs + ' ثانية' : 'جارٍ التفكير…';
+    n.reason.classList.toggle('live', !run.text);
+    if (n.reasonBody.textContent.length !== run.reasoning.length) {
+      n.reasonBody.textContent = run.reasoning;
+      n.reasonBody.scrollTop = n.reasonBody.scrollHeight;
+    }
+    if (!run.reasonOpened) { n.reason.open = true; run.reasonOpened = true; }
+    if (run.text && !run.reasonClosed) { n.reason.open = false; run.reasonClosed = true; }
+  }
+  if (run.sources.length && n.srcs.dataset.n !== String(run.sources.length)) {
+    n.srcs.dataset.n = String(run.sources.length);
+    n.srcs.replaceChildren(buildSources(run.sources, false));
+  }
+}
+
+function buildSources(list, collapsed = true) {
+  const d = mk('details', 'srcs');
+  d.open = !collapsed;
+  const sum = mk('summary');
+  sum.append(mk('span', 'r-ico s-ico'), document.createTextNode('تم البحث في ' + list.length + (list.length === 1 ? ' مصدر' : ' مصادر')));
+  d.append(sum);
+  const ol = mk('ol', 'srcs-list');
+  list.forEach((x) => {
+    if (!x || !/^https?:\/\//i.test(x.url)) return;
+    const li = mk('li');
+    const a = mk('a');
+    a.href = x.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    a.textContent = x.title || x.url;
+    let host = '';
+    try { host = new URL(x.url).hostname.replace(/^www\./, ''); } catch { /* ignore */ }
+    li.append(a, mk('small', '', ''));
+    li.lastChild.textContent = host;
+    ol.append(li);
+  });
+  d.append(ol);
+  return d;
+}
+
+function buildReason(m) {
+  const d = mk('details', 'reason');
+  const sum = mk('summary');
+  sum.append(mk('span', 'r-ico'), document.createTextNode(m.thinkSecs ? 'فكّر لمدة ' + m.thinkSecs + ' ثانية' : 'عرض التفكير'));
+  const body = mk('div', 'reason-body');
+  body.dir = 'auto';
+  body.textContent = m.reasoning;
+  d.append(sum, body);
+  return d;
+}
+
 function paintRun(run) {
   run.raf = 0;
   const n = run.node;
   if (!n || isStale(run)) return;
   n.label.textContent = statusLabel(run);
   n.status.classList.toggle('writing', !!run.text);
+  paintExtras(run);
   if (!run.text) return;
   const stick = nearBottom();
   const b = stableBoundary(run.text);
@@ -1413,6 +1473,8 @@ function commitAssistant(chat, run, extra) {
   if (!canCommit(chat, run)) return false;
   const m = { id: uid(), role: 'assistant', content: run.text, at: Date.now(), ...extra };
   if (run.notices.length) m.notices = run.notices.slice();
+  if (run.reasoning) m.reasoning = run.reasoning.slice(0, 24000);
+  if (run.sources.length) m.sources = run.sources.slice();
   if ((run.sawThinking || run.sawSearching) && run.firstTextAt) {
     const secs = Math.round((run.firstTextAt - run.t0) / 1000);
     if (secs >= 2) { m.thinkSecs = secs; m.thinkKind = run.sawThinking ? 'think' : 'search'; }
@@ -1450,6 +1512,7 @@ async function ask(chat) {
   const run = {
     id: uid(), chatId: chat.id, userMsgId: last.id, kind, mode: kind, modes: runModes, ctrl: null, text: '', status: 'connecting',
     notices: [], stopped: false, attempt: 1, node: null, raf: 0, stableLen: 0, t0: Date.now(), firstTextAt: 0, sawThinking: false, sawSearching: false, timer: 0,
+    reasoning: '', sources: [], reasonOpened: false, reasonClosed: false,
     fileCount: (last.attachments || []).length, projectFiles: 0,
   };
   runs.set(chat.id, run);
@@ -1490,7 +1553,8 @@ async function runChatRequest(chat, run, last) {
     run.attempt = attempt;
     if (attempt > 1) {
       run.status = 'retrying'; run.text = ''; run.notices = []; run.stableLen = 0;
-      if (run.node) { run.node.stable.innerHTML = ''; run.node.tail.innerHTML = ''; paintRun(run); }
+      run.reasoning = ''; run.sources = []; run.reasonOpened = false; run.reasonClosed = false;
+      if (run.node) { run.node.stable.innerHTML = ''; run.node.tail.innerHTML = ''; run.node.reasonBody.textContent = ''; run.node.srcs.replaceChildren(); paintRun(run); }
       await sleep(attempt * 800);
       if (isStale(run) || run.stopped) return finishStopped(chat, run);
     }
@@ -1498,6 +1562,7 @@ async function runChatRequest(chat, run, last) {
     if (isStale(run)) return;
     if (r.stopped) return finishStopped(chat, run);
     if (r.ok) {
+      if (!run.sources.length && Array.isArray(r.done.sources)) run.sources = r.done.sources.filter((x) => x && /^https?:\/\//i.test(x.url)).slice(0, 10);
       rememberLimits(r.done.model, r.done.rateLimits);
       const ok = commitAssistant(chat, run, {
         finish: r.done.finish || 'stop', meta: { model: r.done.model, provider: r.done.provider, search: !!r.done.search, think: !!r.done.think },
@@ -1538,7 +1603,16 @@ async function tryStream(chat, run, payload) {
     const parser = R.sseParser((ev) => {
       if (isStale(run)) return;
       if (ev.error) streamErr = ev;
-      else if (typeof ev.t === 'string') {
+      else if (typeof ev.r === 'string') {
+        run.sawThinking = true;
+        run.reasoning += ev.r;
+        if (!run.text) run.status = 'thinking';
+        schedulePaint(run);
+      } else if (Array.isArray(ev.sources) && !ev.done) {
+        run.sources = ev.sources.filter((x) => x && /^https?:\/\//i.test(x.url)).slice(0, 10);
+        run.sawSearching = true;
+        schedulePaint(run);
+      } else if (typeof ev.t === 'string') {
         if (!run.text) { run.status = 'writing'; run.firstTextAt = Date.now(); }
         run.text += ev.t;
         schedulePaint(run);
@@ -1755,6 +1829,31 @@ el.menu.onclick = () => {
 };
 el.scrim.onclick = closeSide;
 
+
+/* ---------- theme (light / dark / auto) ---------- */
+
+const THEME_KEY = 'nova-theme';
+const darkMQ = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+const THEME_ICON = {
+  moon: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>',
+  sun: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+};
+const themeMode = () => { const v = readStore(THEME_KEY); return v === 'dark' || v === 'light' ? v : 'auto'; };
+const isDark = () => { const m = themeMode(); return m === 'dark' || (m === 'auto' && !!(darkMQ && darkMQ.matches)); };
+function applyTheme() {
+  const dark = isDark();
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', dark ? '#17171a' : '#ffffff');
+  const btn = $('#themeBtn');
+  if (btn) { btn.innerHTML = dark ? THEME_ICON.sun : THEME_ICON.moon; btn.title = dark ? 'الوضع الفاتح' : 'الوضع الداكن'; }
+  document.querySelectorAll('#themeSeg button').forEach((b) => b.classList.toggle('on', b.dataset.themeMode === themeMode()));
+}
+function setTheme(mode) { try { localStorage.setItem(THEME_KEY, mode); } catch { /* ignore */ } applyTheme(); }
+$('#themeBtn').onclick = () => setTheme(isDark() ? 'light' : 'dark');
+$('#themeSeg').addEventListener('click', (e) => { const b = e.target.closest('[data-theme-mode]'); if (b) setTheme(b.dataset.themeMode); });
+if (darkMQ) { const onChange = () => { if (themeMode() === 'auto') applyTheme(); }; darkMQ.addEventListener ? darkMQ.addEventListener('change', onChange) : darkMQ.addListener(onChange); }
+applyTheme();
 
 /* ---------- settings ---------- */
 

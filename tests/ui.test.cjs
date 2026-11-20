@@ -20,9 +20,9 @@ const test = async (n, f) => { try { await f(); passed++; console.log('PASS', n)
   const aiTexts = () => page.$$eval('.row.ai:not(.streaming) .md', n => n.map(x => x.textContent));
   const chatData = () => page.evaluate(() => JSON.parse(localStorage.getItem('nova_ai_chats_v1') || '[]'));
 
-  await test('page loads without errors; mode chips order Think, Search, AI Fix above composer', async () => {
+  await test('page loads without errors; mode chips order DeepThink, Search, AI Fix above composer', async () => {
     const labels = await page.$$eval('#modeBar .mode-chip span', n => n.map(x => x.textContent));
-    assert.deepEqual(labels, ['Think', 'Search', 'AI Fix']);
+    assert.deepEqual(labels, ['DeepThink', 'Search', 'AI Fix']);
     const bar = await page.$eval('#modeBar', n => n.getBoundingClientRect().bottom);
     const comp = await page.$eval('#composer', n => n.getBoundingClientRect().top);
     assert.ok(bar <= comp + 1 && comp - bar < 20, `bar ${bar} composer ${comp}`);
@@ -41,7 +41,7 @@ const test = async (n, f) => { try { await f(); passed++; console.log('PASS', n)
   await test('Think + Search together are both sent and both shown active', async () => {
     await page.click('#thinkToggle'); await page.click('#searchToggle');
     const act = await page.$$eval('#modeBar .mode-chip.active', n => n.map(x => x.textContent.trim()));
-    assert.deepEqual(act, ['Think', 'Search']);
+    assert.deepEqual(act, ['DeepThink', 'Search']);
     await send('news AAA');
     await page.waitForFunction(() => document.querySelectorAll('.row.ai:not(.streaming)').length >= 2);
     const b = (await lastLog()).body; assert.equal(b.think, true); assert.equal(b.search, true);
@@ -52,6 +52,31 @@ const test = async (n, f) => { try { await f(); passed++; console.log('PASS', n)
     await send('كمّل');
     await page.waitForFunction(() => document.querySelectorAll('.row.ai:not(.streaming)').length >= 3);
     const b = (await lastLog()).body; assert.equal(b.intent, 'continue'); assert.ok(b.messages.length >= 5);
+  });
+
+  await test('DeepSeek-style: thinking panel + sources panel shown and saved; dark mode toggles and persists', async () => {
+    await newChatBtn();
+    await page.click('#thinkToggle'); await page.click('#searchToggle');
+    await send('reason AAA');
+    await page.waitForFunction(() => document.querySelectorAll('.row.ai:not(.streaming)').length >= 1);
+    const info = await page.evaluate(() => ({
+      reason: !!document.querySelector('.row.ai details.reason .reason-body')?.textContent.includes('خطوة تفكير'),
+      srcs: document.querySelectorAll('.row.ai details.srcs .srcs-list a').length,
+      href: document.querySelector('.row.ai details.srcs .srcs-list a')?.href,
+    }));
+    assert.ok(info.reason, 'reasoning panel with text'); assert.equal(info.srcs, 2); assert.equal(info.href, 'https://docs.godotengine.org/en/stable/');
+    await page.click('#thinkToggle'); await page.click('#searchToggle');
+    assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'light');
+    await page.click('#themeBtn');
+    assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'dark');
+    const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    assert.equal(bg, 'rgb(23, 23, 26)');
+    await page.reload(); await page.waitForSelector('#themeBtn');
+    assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'dark');
+    const chip = await page.evaluate(() => getComputedStyle(document.querySelector('#modeBar .mode-chip')).backgroundColor);
+    assert.notEqual(chip, 'rgb(255, 255, 255)');
+    await page.click('#themeBtn');
+    assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'light');
   });
 
   await test('stop button keeps partial text, marks it stopped, no error row', async () => {

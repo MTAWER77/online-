@@ -85,21 +85,22 @@ await test('stream cut without finish -> error incomplete, never done', async ()
   assert.ok(!r.events.some(e => e.done)); assert.equal(r.events.find(e => e.error).code, 'incomplete');
 });
 
-await test('Think on gpt-oss: reasoning_effort high, reasoning hidden, no leak, status thinking', async () => {
+await test('Think on gpt-oss: reasoning_effort high, reasoning streamed as {r} (never inside answer text)', async () => {
   mockFetch(() => sse([{ choices: [{ delta: { reasoning: 'secret thoughts' } }] }, delta('answer'), fin()]));
   const r = await chat({ GROQ_API_KEY: 'g' }, { think: true });
   const b = calls[0].body;
-  assert.equal(b.reasoning_effort, 'high'); assert.equal(b.include_reasoning, false);
+  assert.equal(b.reasoning_effort, 'high'); assert.equal(b.include_reasoning, true);
   assert.ok(r.events.some(e => e.status === 'thinking'));
-  assert.ok(!r.text.includes('secret thoughts'));
+  assert.equal(r.events.filter(e => typeof e.r === 'string').map(e => e.r).join(''), 'secret thoughts');
+  assert.ok(!t(r.events).includes('secret thoughts'));
   assert.equal(t(r.events), 'answer');
 });
 
-await test('Think on qwen uses reasoning_format hidden, no include_reasoning', async () => {
+await test('Think on qwen uses reasoning_format parsed, no include_reasoning', async () => {
   mockFetch(({ body }) => body.model.startsWith('openai/gpt-oss') ? new Response('x', { status: 404 }) : sse([delta('ok'), fin()]));
   await chat({ GROQ_API_KEY: 'g' }, { think: true });
   const q = calls.find(c => /qwen/.test(c.body.model)).body;
-  assert.equal(q.reasoning_format, 'hidden'); assert.equal(q.include_reasoning, undefined);
+  assert.equal(q.reasoning_format, 'parsed'); assert.equal(q.include_reasoning, undefined);
 });
 
 await test('Think rejected (400 reasoning) -> retried without params + notice', async () => {
@@ -109,12 +110,12 @@ await test('Think rejected (400 reasoning) -> retried without params + notice', 
   assert.equal(calls[1].body.reasoning_effort, undefined);
 });
 
-await test('Search+Think together: tools + medium effort + sources appended', async () => {
+await test('Search+Think together: tools + medium effort + sources sent as event', async () => {
   mockFetch(() => new Response(JSON.stringify({ choices: [{ message: { content: 'نتيجة', annotations: [{ url_citation: { url: 'https://docs.godotengine.org/x', title: 'Docs' } }] }, finish_reason: 'stop' }] }), { status: 200 }));
   const r = await chat({ GROQ_API_KEY: 'g' }, { search: true, think: true });
   const b = calls[0].body;
   assert.equal(b.stream, false); assert.deepEqual(b.tools, [{ type: 'browser_search' }]); assert.equal(b.reasoning_effort, 'medium');
-  assert.ok(t(r.events).includes('https://docs.godotengine.org/x'));
+  assert.ok(r.events.some(e => Array.isArray(e.sources) && !e.done && e.sources[0].url === 'https://docs.godotengine.org/x'));
   const d = r.events.at(-1); assert.equal(d.search, true); assert.equal(d.think, true); assert.equal(d.sources.length, 1);
   assert.ok(r.events[0].status === 'start' && r.events.some(e => e.status === 'searching'));
 });
@@ -173,6 +174,30 @@ await test('generate-files fix mode: findings, tested:false, truncated detected'
   mockFetch(() => new Response(JSON.stringify({ choices: [{ message: { content: '{"files":[' }, finish_reason: 'length' }] }), { status: 200 }));
   res = await worker.fetch(new Request('https://x/api/generate-files', { method: 'POST', body: JSON.stringify({ messages: [{ role: 'user', content: 'make' }] }) }), { GROQ_API_KEY: 'g' });
   j = await res.json(); assert.equal(j.code, 'truncated');
+});
+
+await test('Search: tool_choice rejected (400) -> retried on same model without tool_choice', async () => {
+  mockFetch(({ body }) => body.tool_choice ? new Response('invalid tool_choice value', { status: 400 }) : new Response(JSON.stringify({ choices: [{ message: { content: 'ok', annotations: [{ url_citation: { url: 'https://a.dev/x', title: 'A' } }] }, finish_reason: 'stop' }] }), { status: 200 }));
+  const r = await chat({ GROQ_API_KEY: 'g' }, { search: true });
+  assert.equal(calls.length, 2); assert.equal(calls[1].body.model, calls[0].body.model); assert.equal(calls[1].body.tool_choice, undefined);
+  assert.equal(r.events.at(-1).search, true); assert.equal(t(r.events), 'ok');
+});
+
+await test('Search: Groq fails -> keyless web search results injected, sources event + search_fallback notice', async () => {
+  calls = [];
+  const html = '<div class="result results_links web-result"><a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdocs.godotengine.org%2Fen%2Fstable%2F&rut=1">Godot Docs</a><a class="result__snippet">Official docs &amp; tutorials</a></div>';
+  globalThis.fetch = async (url, init) => {
+    if (String(url).startsWith('https://html.duckduckgo.com')) return new Response(html, { status: 200 });
+    const body = JSON.parse(init.body); calls.push({ body });
+    return body.tools || body.model.startsWith('groq/compound') ? new Response('nope', { status: 400 }) : sse([delta('answer [1]'), fin()]);
+  };
+  const r = await chat({ GROQ_API_KEY: 'g' }, { search: true });
+  assert.ok(r.events.some(e => e.notice === 'search_fallback'));
+  const src = r.events.find(e => Array.isArray(e.sources) && !e.done);
+  assert.equal(src.sources[0].url, 'https://docs.godotengine.org/en/stable/');
+  const last = calls.at(-1).body;
+  assert.ok(last.messages[0].content.includes('Godot Docs') && last.messages[0].content.includes('Live web search results'));
+  assert.equal(r.events.at(-1).sources.length, 1); assert.equal(t(r.events), 'answer [1]');
 });
 
 console.log(`\n${passed} passed`);
