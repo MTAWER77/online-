@@ -20,9 +20,9 @@ const test = async (n, f) => { try { await f(); passed++; console.log('PASS', n)
   const aiTexts = () => page.$$eval('.row.ai:not(.streaming) .md', n => n.map(x => x.textContent));
   const chatData = () => page.evaluate(() => JSON.parse(localStorage.getItem('nova_ai_chats_v1') || '[]'));
 
-  await test('page loads without errors; mode chips order DeepThink, Search, AI Fix above composer', async () => {
+  await test('page loads without errors; mode chips order DeepThink, Search above composer', async () => {
     const labels = await page.$$eval('#modeBar .mode-chip span', n => n.map(x => x.textContent));
-    assert.deepEqual(labels, ['DeepThink', 'Search', 'AI Fix']);
+    assert.deepEqual(labels, ['DeepThink', 'Search']);
     const bar = await page.$eval('#modeBar', n => n.getBoundingClientRect().bottom);
     const comp = await page.$eval('#composer', n => n.getBoundingClientRect().top);
     assert.ok(bar <= comp + 1 && comp - bar < 20, `bar ${bar} composer ${comp}`);
@@ -148,7 +148,7 @@ const test = async (n, f) => { try { await f(); passed++; console.log('PASS', n)
     await page.click('#menuBtn'); await page.click('#newChat');
     await page.setInputFiles('#zipInput', 'gp.zip');
     await page.waitForSelector('.project-chip');
-    const chip = await page.textContent('.project-chip'); assert.ok(chip.includes('Cart Game'), chip);
+    const chip = await page.textContent('.project-chip'); assert.ok(chip.includes('gp.zip') && chip.includes('7 ملف'), chip);
     await page.click('.project-chip .attachment-remove.info');
     assert.ok((await page.textContent('.project-details')).includes('res://scripts/missing_data.gd'));
     await send('اشرح player.gd');
@@ -157,22 +157,47 @@ const test = async (n, f) => { try { await f(); passed++; console.log('PASS', n)
     assert.ok(b.project.includes('### FILE scripts/player.gd') && b.project.includes('PROJECT MAP'));
     assert.ok(b.project.length <= 32000);
     assert.ok(!b.messages.some(m => JSON.stringify(m.content).includes('extends CharacterBody2D')), 'project files must not be duplicated in messages');
+    // zip behaves like a normal chat attachment: card inside the user bubble, tray cleared after send
+    assert.equal(await page.$('.project-chip'), null, 'tray cleared after send');
+    const card = await page.textContent('.row.user .user-attachment.is-project');
+    assert.ok(card.includes('gp.zip') && card.includes('7 ملف'), card);
   });
 
-  await test('AI Fix: project fix request, report, untested label, diff review & accept/reject', async () => {
-    await page.click('#codeFixToggle');
-    await send('اصلح player.gd');
-    await page.waitForSelector('.fix-report', { timeout: 10000 });
-    const b = (await lastLog()); assert.equal(b.path, '/api/generate-files'); assert.equal(b.body.mode, 'fix');
-    assert.ok((await page.textContent('.fix-report')).includes('لم يُختبر داخل Godot'));
-    assert.ok(await page.$('.generated-file'));
-    await page.click('.generated-review');
-    assert.ok(await page.$('.diff-hunk'), 'diff hunks shown vs original from project');
-    await page.click('.diff-toolbar .diff-tool:not(.accept-all)');
-    await page.click('.diff-final-head .diff-tool');
-    const finalText = await page.textContent('.diff-final-preview');
-    assert.ok(finalText.includes('CharacterBody2D') && finalText.includes('yield('), 'rejected hunk keeps original');
-    await page.click('#codeFixToggle');
+  await test('zip alone (no text) can be sent; steps panel lists what was read', async () => {
+    await page.click('#menuBtn'); await page.click('#newChat');
+    await page.setInputFiles('#zipInput', 'gp.zip');
+    await page.waitForSelector('.project-chip');
+    await page.click('#sendBtn');
+    await page.waitForSelector('.row.ai:not(.streaming) .md');
+    const b = (await lastLog()).body;
+    const last = b.messages[b.messages.length - 1];
+    assert.ok(JSON.stringify(last.content).includes('gp.zip'), 'fallback prompt mentions the zip');
+    assert.ok(await page.$('.row.user .user-attachment.is-project'));
+    const steps = await page.textContent('.row.ai .steps-sum');
+    assert.ok(/خطوات|خطوة/.test(steps), steps);
+    await page.click('.row.ai .steps-sum summary');
+    const body = await page.textContent('.row.ai .steps-sum .steps');
+    assert.ok(body.includes('gp.zip') && body.includes('قراءة') && body.includes('كتابة الرد'), body);
+    await page.click('#menuBtn'); await page.click('.chat-item:has-text("اشرح player.gd") .chat-open');
+  });
+
+  await test('AI Fix button is gone and stale saved flag cannot enable it', async () => {
+    assert.equal(await page.$('#codeFixToggle'), null);
+    assert.equal(await page.evaluate(() => localStorage.getItem('nova_ai_code_fix_enabled_v1')), '0');
+  });
+
+  await test('attach sheet: 3 tiles (camera, photos, files), opens/closes, no overflow', async () => {
+    await page.click('#attachBtn');
+    const tiles = await page.$$eval('#attachMenu button:not([hidden])', n => n.map(x => [x.dataset.attach, x.textContent.trim()]));
+    assert.deepEqual(tiles, [['camera', 'الكاميرا'], ['image', 'الصور'], ['file', 'الملفات']]);
+    const r = await page.$eval('#attachMenu', n => { const b = n.getBoundingClientRect(); return { l: b.left, r: b.right, w: innerWidth, vis: getComputedStyle(n).display }; });
+    assert.ok(r.l >= 0 && r.r <= r.w && r.vis === 'grid', JSON.stringify(r));
+    const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.click('#attachMenu [data-attach="file"]')]);
+    assert.ok(chooser.isMultiple()); 
+    assert.equal(await page.$eval('#attachMenu', n => n.hidden), true);
+    await page.click('#attachBtn'); await page.click('#sendBtn', { force: true }).catch(() => {});
+    await page.mouse.click(5, 5);
+    assert.equal(await page.$eval('#attachMenu', n => n.hidden), true, 'outside click closes');
   });
 
   await test('draft survives chat switch; composer stays visible on small phone; no horizontal overflow', async () => {

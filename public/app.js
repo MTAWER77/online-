@@ -18,7 +18,7 @@ const el = {
   attachBtn: $('#attachBtn'), attachMenu: $('#attachMenu'),
   fileInput: $('#fileInput'), imageInput: $('#imageInput'), cameraInput: $('#cameraInput'), zipInput: $('#zipInput'), folderInput: $('#folderInput'),
   attachmentTray: $('#attachmentTray'), modeBar: $('#modeBar'),
-  thinkToggle: $('#thinkToggle'), searchToggle: $('#searchToggle'), codeFixToggle: $('#codeFixToggle'),
+  thinkToggle: $('#thinkToggle'), searchToggle: $('#searchToggle'), toBottom: $('#toBottom'),
 };
 
 const KEY = 'nova_ai_chats_v1';
@@ -60,11 +60,12 @@ const imageDataStore = new Map();
 
 const readFlag = (k) => { try { return localStorage.getItem(k) === '1'; } catch { return false; } };
 const writeFlag = (k, v) => { try { localStorage.setItem(k, v ? '1' : '0'); } catch { /* ignore */ } };
-const modes = { think: readFlag(THINK_KEY), search: readFlag(SEARCH_KEY), fix: readFlag(CODE_FIX_KEY) };
+// AI Fix button was removed from the UI: force it off and clear any stale saved flag so it can't stay on invisibly.
+writeFlag(CODE_FIX_KEY, false);
+const modes = { think: readFlag(THINK_KEY), search: readFlag(SEARCH_KEY), fix: false };
 const MODE_META = {
   think: { btn: el.thinkToggle, key: THINK_KEY, on: 'Think مفعّل: تفكير أعمق قبل الرد.', off: 'تم إيقاف Think.' },
   search: { btn: el.searchToggle, key: SEARCH_KEY, on: 'Search مفعّل: بحث على الويب مع مصادر.', off: 'تم إيقاف Search.' },
-  fix: { btn: el.codeFixToggle, key: CODE_FIX_KEY, on: 'AI Fix مفعّل: ارفع الكود أو مشروع Godot واكتب المشكلة.', off: 'تم إيقاف AI Fix.' },
 };
 
 function renderModes() {
@@ -687,11 +688,11 @@ function renderProjectChip(chat) {
   const icon = mk('span', 'attachment-icon', svg(IC.folder, 18));
   const info = mk('div', 'attachment-info');
   const name = mk('span', 'attachment-name');
-  name.textContent = (project ? project.name : meta.name) || 'Godot project';
+  name.textContent = meta.srcName || (project ? project.name : meta.name) || 'project.zip';
   const sub = mk('span', 'attachment-size');
   const warn = project ? project.findings.length : meta.findings || 0;
   sub.textContent = project
-    ? `${project.files.size} ملف مقروء · ${warn} ملاحظة ثابتة${project.skipped.length ? ' · ' + project.skipped.length + ' لم يُقرأ' : ''}`
+    ? `${project.files.size} ملف مقروء${project.skipped.length ? ' · ' + project.skipped.length + ' لم يُقرأ' : ''}`
     : 'جارٍ تحميل المشروع…';
   info.append(name, sub);
   const details = mk('button', 'attachment-remove info', svg(IC.info, 14));
@@ -700,7 +701,7 @@ function renderProjectChip(chat) {
   const remove = mk('button', 'attachment-remove', svg(IC.close, 14));
   remove.type = 'button';
   remove.setAttribute('aria-label', 'إزالة المشروع');
-  remove.onclick = () => { dropProject(chat); renderAttachments(); toast('تمت إزالة سياق المشروع من هذه المحادثة.'); };
+  remove.onclick = () => { dropProject(chat); renderAttachments(); toast('تمت إزالة الملف.'); };
   top.append(icon, info, details, remove);
   box.append(top);
 
@@ -728,7 +729,7 @@ function renderAttachments() {
   if (!el.attachmentTray) return;
   el.attachmentTray.innerHTML = '';
   const chat = current();
-  const hasProject = !!(chat && chat.project);
+  const hasProject = !!(chat && chat.project && chat.project.pending);
   el.attachmentTray.hidden = pendingFiles.length === 0 && !hasProject;
   if (hasProject) el.attachmentTray.append(renderProjectChip(chat));
 
@@ -869,17 +870,22 @@ async function handleProjectUpload(kind, fileList) {
   if (!files.length) return;
   const chat = current() || newChat();
   const old = projects.get(chat.id);
-  toast('جارٍ قراءة مشروع Godot…');
+  toast('جارٍ قراءة الملف…');
   try {
     const onProgress = (done, total) => { el.attachmentTray.hidden = false; el.attachmentTray.dataset.progress = `${done}/${total}`; };
     const project = kind === 'zip' ? await G.readZipProject(files[0], { onProgress }) : await G.readFolderProject(files, { onProgress });
     delete el.attachmentTray.dataset.progress;
-    if (!project.files.size) { toast('لم أجد ملفات Godot قابلة للقراءة في هذا الاختيار.'); renderAttachments(); return; }
+    if (!project.files.size) { toast('لم أجد ملفات نصية قابلة للقراءة في هذا الاختيار.'); renderAttachments(); return; }
     const d = G.diffProjects(old, project);
     storeProject(chat, project);
+    // Shown like any other attachment until the message is sent, then lives inside that message.
+    chat.project.pending = true;
+    chat.project.srcName = kind === 'zip' ? files[0].name : project.name;
+    chat.project.srcSize = kind === 'zip' ? files[0].size : 0;
+    save();
     if (old) toast(`تم تحديث المشروع: ${d.changed.length} معدّل، ${d.added.length} جديد، ${d.removed.length} محذوف.`);
     else toast(`تم تحميل المشروع: ${project.files.size} ملف مقروء${project.skipped.length ? '، ' + project.skipped.length + ' لم يُقرأ' : ''}.`);
-    if (!project.files.has('project.godot')) setTimeout(() => toast('لم أجد project.godot؛ سيُعامل كمجلد سكربتات فقط.'), 3300);
+    if (!project.files.has('project.godot') && [...project.files.values()].some((f) => ['gd', 'tscn', 'tres'].includes(f.ext))) setTimeout(() => toast('لم أجد project.godot؛ سيُعامل كمجلد سكربتات فقط.'), 3300);
   } catch (e) {
     delete el.attachmentTray.dataset.progress;
     toast('تعذر قراءة المشروع: ' + (e.message || 'خطأ غير معروف'));
@@ -932,11 +938,12 @@ function rowUser(message) {
   if (message && Array.isArray(message.attachments) && message.attachments.length) {
     const files = mk('div', 'user-attachments');
     message.attachments.forEach((file) => {
-      const item = mk('div', 'user-attachment');
-      item.innerHTML = svg(IC.file, 14);
+      const item = mk('div', 'user-attachment' + (file.kind === 'project' ? ' is-project' : ''));
+      item.innerHTML = svg(file.kind === 'project' ? IC.archive : IC.file, 14);
       const name = mk('span');
       name.textContent = file.name;
       item.append(name);
+      if (file.kind === 'project' && file.files) item.append(mk('small', '', file.files + ' ملف'));
       files.append(item);
     });
     b.append(files);
@@ -1002,6 +1009,7 @@ function rowAI(m, idx, isLast, sourceFiles) {
     m.notices.forEach((x) => { const d = mk('div', 'notice'); d.textContent = 'ℹ ' + x.text; n.append(d); });
     body.append(n);
   }
+  if (Array.isArray(m.steps) && m.steps.length) body.append(buildSteps(m.steps, false));
   if (m.reasoning) body.append(buildReason(m));
   if (Array.isArray(m.sources) && m.sources.length) body.append(buildSources(m.sources));
   if (m.thinkSecs && !m.reasoning) {
@@ -1099,6 +1107,7 @@ function renderMessages() {
   el.msgs.append(frag);
   if (run) attachRunNode(run);
   else if (chat.lastError) showErrorRow(chat);
+  followBottom = true;
   scrollDown();
   updateComposerState();
 }
@@ -1152,13 +1161,14 @@ function attachRunNode(run) {
   const row = mk('div', 'row ai streaming');
   row.innerHTML =
     '<div class="ai-body"><div class="think run-status"><i class="orb"></i><span class="lbl"></span><em class="sec"></em></div>' +
+    '<div class="steps-host" hidden></div>' +
     '<details class="reason" hidden><summary><span class="r-ico"></span><span class="r-title"></span></summary><div class="reason-body" dir="auto"></div></details>' +
     '<div class="srcs-host"></div>' +
     '<div class="run-notices"></div><div class="task-panel" hidden></div><div class="md"><div class="md-stable"></div><div class="md-tail"></div></div></div>';
   el.msgs.append(row);
   run.node = {
     row, status: row.querySelector('.run-status'), label: row.querySelector('.run-status .lbl'), sec: row.querySelector('.run-status .sec'),
-    reason: row.querySelector('.reason'), reasonTitle: row.querySelector('.r-title'), reasonBody: row.querySelector('.reason-body'), srcs: row.querySelector('.srcs-host'),
+    steps: row.querySelector('.steps-host'), reason: row.querySelector('.reason'), reasonTitle: row.querySelector('.r-title'), reasonBody: row.querySelector('.reason-body'), srcs: row.querySelector('.srcs-host'),
     notices: row.querySelector('.run-notices'), taskPanel: row.querySelector('.task-panel'), stable: row.querySelector('.md-stable'), tail: row.querySelector('.md-tail'),
   };
   run.stableLen = 0;
@@ -1256,17 +1266,119 @@ function paintRun(run) {
   n.status.classList.toggle('writing', !!run.text);
   paintExtras(run);
   paintTasks(run);
-  if (!run.text) return;
-  const stick = nearBottom();
+  paintSteps(run);
+  revealStep(run);
+  if (!run.text) { if (run.pending) schedulePaint(run); return; }
+  const stick = followBottom;
   const b = stableBoundary(run.text);
   if (b > run.stableLen) {
     n.stable.insertAdjacentHTML('beforeend', R.md(run.text.slice(run.stableLen, b), COPY_HTML));
     run.stableLen = b;
   }
   n.tail.innerHTML = R.md(run.text.slice(run.stableLen), COPY_HTML);
-  if (stick) scrollDown();
+  if (stick) scrollDown(); else updateToBottom();
+  if (run.pending) schedulePaint(run);
 }
 function schedulePaint(run) { if (!run.raf) run.raf = requestAnimationFrame(() => paintRun(run)); }
+
+/* ---------- smooth, readable reveal (typing pace follows the backlog, never jumps) ---------- */
+const REVEAL = { base: 60, gain: 1.0, max: 220, finishSecs: 12, finishMax: 650 };
+function revealStep(run) {
+  const now = performance.now();
+  const dt = run.lastTs ? Math.min(0.1, (now - run.lastTs) / 1000) : 0.016;
+  run.lastTs = now;
+  if (!run.pending) { run.lastTs = 0; return; }
+  let rate = Math.min(REVEAL.max, Math.max(REVEAL.base, run.pending.length * REVEAL.gain));
+  if (run.streamDone) rate = Math.min(REVEAL.finishMax, Math.max(rate, run.pending.length / REVEAL.finishSecs));
+  run.revealAcc += rate * dt;
+  let n = Math.floor(run.revealAcc);
+  if (n < 1) return;
+  run.revealAcc -= n;
+  n = Math.min(n, run.pending.length);
+  const c = run.pending.charCodeAt(n - 1);
+  if (c >= 0xd800 && c <= 0xdbff && n < run.pending.length) n++;
+  run.text += run.pending.slice(0, n);
+  run.pending = run.pending.slice(n);
+}
+function flushPending(run) { if (run.pending) { run.text += run.pending; run.pending = ''; } }
+async function drainRun(run) {
+  run.streamDone = true;
+  while (run.pending && !run.stopped && !isStale(run)) {
+    if (document.hidden) { flushPending(run); break; }
+    schedulePaint(run);
+    await sleep(40);
+  }
+  if (!isStale(run) && run.node) paintRun(run);
+}
+
+/* ---------- follow the bottom only while the reader has not scrolled away ---------- */
+let followBottom = true;
+let lastTop = 0, touching = false;
+const distBottom = () => el.msgs.scrollHeight - el.msgs.scrollTop - el.msgs.clientHeight;
+function updateToBottom() {
+  if (!el.toBottom) return;
+  el.toBottom.hidden = !(isBusy(current()) && !followBottom && distBottom() > 140);
+}
+el.msgs.addEventListener('scroll', () => {
+  const top = el.msgs.scrollTop;
+  if (top < lastTop - 2 && distBottom() > 24) followBottom = false;
+  else if (distBottom() < 24) followBottom = true;
+  lastTop = top;
+  updateToBottom();
+}, { passive: true });
+el.msgs.addEventListener('wheel', (e) => { if (e.deltaY < 0) { followBottom = false; updateToBottom(); } }, { passive: true });
+el.msgs.addEventListener('touchstart', () => { touching = true; }, { passive: true });
+el.msgs.addEventListener('touchmove', () => { if (touching && distBottom() > 24) { followBottom = false; updateToBottom(); } }, { passive: true });
+el.msgs.addEventListener('touchend', () => { touching = false; }, { passive: true });
+el.toBottom?.addEventListener('click', () => { followBottom = true; el.msgs.scrollTo({ top: el.msgs.scrollHeight, behavior: 'smooth' }); el.toBottom.hidden = true; });
+
+/* ---------- activity steps (what NOVA is reading / editing), like Claude ---------- */
+function stepStart(run, id, label, detail) {
+  if (!run.steps) run.steps = [];
+  let s = run.steps.find((x) => x.id === id);
+  if (!s) { s = { id, label, detail: detail || '', state: 'run' }; run.steps.push(s); }
+  else { s.label = label; s.state = 'run'; if (detail !== undefined) s.detail = detail; }
+  schedulePaint(run);
+  return s;
+}
+function stepDone(run, id, label, detail) {
+  const s = (run.steps || []).find((x) => x.id === id);
+  if (!s) return;
+  s.state = 'done';
+  if (label) s.label = label;
+  if (detail !== undefined) s.detail = detail;
+  schedulePaint(run);
+}
+function stepAdd(run, label, detail, state = 'done') {
+  if (!run.steps) run.steps = [];
+  run.steps.push({ id: 's' + run.steps.length, label, detail: detail || '', state });
+  schedulePaint(run);
+}
+function stepsSnapshot(run) { return (run.steps || []).map((s) => ({ label: s.label, detail: s.detail || '', state: s.state === 'fail' ? 'fail' : 'done' })); }
+function buildSteps(list, live) {
+  const box = mk('div', 'steps');
+  list.forEach((s) => {
+    const row = mk('div', 'step ' + (s.state || 'done'));
+    row.append(mk('i', 'step-dot'));
+    const l = mk('span', 'step-label'); l.textContent = s.label; row.append(l);
+    if (s.detail) { const d = mk('small', 'step-detail'); d.textContent = s.detail; row.append(d); }
+    box.append(row);
+  });
+  if (live) return box;
+  const d = mk('details', 'steps-sum');
+  const sum = mk('summary'); sum.append(mk('span', 'r-ico st-ico'), document.createTextNode(list.length === 1 ? 'خطوة واحدة' : 'تمت ' + list.length + ' خطوات'));
+  d.append(sum, box);
+  return d;
+}
+function paintSteps(run) {
+  const n = run.node;
+  if (!n || !n.steps) return;
+  const sig = (run.steps || []).map((s) => s.id + s.state + s.label + s.detail).join('|');
+  if (n.steps.dataset.sig === sig) return;
+  n.steps.dataset.sig = sig;
+  n.steps.hidden = !run.steps.length;
+  n.steps.replaceChildren(buildSteps(run.steps, true));
+}
 
 const SEND_ICON = el.send.innerHTML;
 const STOP_ICON =
@@ -1427,6 +1539,8 @@ function buildApiMessages(chat) {
     if (m.role !== 'user' || !Array.isArray(m.attachments) || !m.attachments.length) return { role: m.role, content: m.content || '' };
     const fresh = freshIds.has(m.id);
     let text = m.content || '';
+    const prj = m.attachments.find((x) => x.kind === 'project');
+    if (prj && !text.trim()) text = 'حلّل المشروع المرفق (' + prj.name + ') واشرح بنيته وأهم ملاحظاتك باختصار.';
     for (const file of m.attachments) {
       if (file.kind !== 'text') continue;
       if (fresh && file.content && !file.inProject) text += '\n\n--- بداية الملف: ' + file.name + ' ---\n```text\n' + fileBody(file, m.content) + '\n```\n--- نهاية الملف: ' + file.name + ' ---' + (file.truncated ? '\n(الملف مقتطع لأنه طويل)' : '');
@@ -1504,10 +1618,15 @@ function submit(text) {
   text = (text || '').trim();
   const existing = current();
   if (existing && isBusy(existing)) { toast('هذه المحادثة لديها رد قيد التنفيذ. أوقفه أو انتظر.'); return false; }
-  if (!text && pendingFiles.length === 0) return false;
+  const hasPendingProject = !!(existing && existing.project && existing.project.pending);
+  if (!text && pendingFiles.length === 0 && !hasPendingProject) return false;
   if (runs.size >= MAX_ACTIVE_RUNS) { toast('يوجد ردّان قيد التنفيذ في محادثات أخرى. انتظر أحدهما أو أوقفه.'); return false; }
   const attachments = pendingFiles.map((f) => ({ ...f }));
   const chat = existing || newChat();
+  if (chat.project && chat.project.pending) {
+    attachments.unshift({ id: 'prj_' + uid(), kind: 'project', name: chat.project.srcName || chat.project.name || 'project.zip', size: chat.project.srcSize || 0, files: chat.project.files || 0 });
+    chat.project.pending = false;
+  }
 
   if (modes.fix) {
     if (attachments.some((f) => f.kind === 'image')) { toast('AI Fix يعمل مع ملفات الكود فقط. أزل الصور أو أوقف AI Fix.'); return false; }
@@ -1541,6 +1660,7 @@ function commitAssistant(chat, run, extra) {
   if (run.notices.length) m.notices = run.notices.slice();
   if (run.reasoning) m.reasoning = run.reasoning.slice(0, 24000);
   if (run.sources.length) m.sources = run.sources.slice();
+  if (run.steps && run.steps.length) m.steps = stepsSnapshot(run);
   if ((run.sawThinking || run.sawSearching) && run.firstTextAt) {
     const secs = Math.round((run.firstTextAt - run.t0) / 1000);
     if (secs >= 2) { m.thinkSecs = secs; m.thinkKind = run.sawThinking ? 'think' : 'search'; }
@@ -1562,6 +1682,7 @@ function endRun(chat, run) {
 
 function failRun(chat, run, msg, { keepPartial = true } = {}) {
   if (isStale(run)) return;
+  failSteps(run);
   if (keepPartial && run.text.trim()) commitAssistant(chat, run, { incomplete: true, error: msg });
   else { chat.lastError = { msg }; save(); }
   endRun(chat, run);
@@ -1582,7 +1703,7 @@ async function ask(chat) {
     id: uid(), chatId: chat.id, userMsgId: last.id, kind, mode: kind, modes: runModes, ctrl: null, text: '', status: 'connecting',
     notices: [], stopped: false, attempt: 1, node: null, raf: 0, stableLen: 0, t0: Date.now(), firstTextAt: 0, sawThinking: false, sawSearching: false, timer: 0,
     reasoning: '', sources: [], reasonOpened: false, reasonClosed: false,
-    fileCount: (last.attachments || []).length, projectFiles: 0,
+    fileCount: (last.attachments || []).length, projectFiles: 0, pending: '', revealAcc: 0, lastTs: 0, streamDone: false, steps: [],
   };
   runs.set(chat.id, run);
   renderList();
@@ -1604,6 +1725,16 @@ async function ask(chat) {
 function buildPayload(chat, run, last, extra = {}, override) {
   const proj = projectPayload(chat, last, run.kind === 'fix' ? FIX_PROJECT_BUDGET : CHAT_PROJECT_BUDGET, override);
   run.projectFiles = proj.included.length;
+  if (!(run.steps || []).some((s) => s.id === 'read')) {
+    const prj = (last.attachments || []).find((x) => x.kind === 'project');
+    if (prj) stepAdd(run, 'فتح ' + prj.name, prj.files ? prj.files + ' ملف مقروء' : '');
+    if (proj.included.length) {
+      const names = proj.included.map((x) => x.path);
+      stepAdd(run, 'قراءة ' + names.length + (names.length === 1 ? ' ملف مرتبط بسؤالك' : ' ملفات مرتبطة بسؤالك'), names.slice(0, 4).join(' · ') + (names.length > 4 ? ' · +' + (names.length - 4) : ''));
+      run.steps[run.steps.length - 1].id = 'read';
+    }
+    for (const f of (last.attachments || [])) if (f.kind === 'text') stepAdd(run, 'قراءة ' + f.name, '');
+  }
   return {
     messages: buildApiMessages(chat),
     think: run.modes.think,
@@ -1622,12 +1753,13 @@ async function runChatRequest(chat, run, last) {
     if (isStale(run) || run.stopped) return finishStopped(chat, run);
     run.attempt = attempt;
     if (attempt > 1) {
-      run.status = 'retrying'; run.text = ''; run.notices = []; run.stableLen = 0;
+      run.status = 'retrying'; run.text = ''; run.pending = ''; run.streamDone = false; run.notices = []; run.stableLen = 0;
       run.reasoning = ''; run.sources = []; run.reasonOpened = false; run.reasonClosed = false;
       if (run.node) { run.node.stable.innerHTML = ''; run.node.tail.innerHTML = ''; run.node.reasonBody.textContent = ''; run.node.srcs.replaceChildren(); paintRun(run); }
       await sleep(attempt * 800);
       if (isStale(run) || run.stopped) return finishStopped(chat, run);
     }
+    stepStart(run, 'wait', 'انتظار رد النموذج');
     const r = await tryStream(chat, run, payload);
     if (isStale(run)) return;
     if (r.stopped) return finishStopped(chat, run);
@@ -1645,8 +1777,12 @@ async function runChatRequest(chat, run, last) {
   }
 }
 
+function failSteps(run) { (run.steps || []).forEach((s) => { if (s.state === 'run') s.state = 'fail'; }); }
+
 function finishStopped(chat, run) {
   if (isStale(run)) return;
+  if (run.streamDone) flushPending(run); // the model had already finished: keep the whole reply
+  failSteps(run);
   if (run.text.trim()) commitAssistant(chat, run, { incomplete: true, stopped: true });
   endRun(chat, run);
 }
@@ -1683,8 +1819,8 @@ async function tryStream(chat, run, payload) {
         run.sawSearching = true;
         schedulePaint(run);
       } else if (typeof ev.t === 'string') {
-        if (!run.text) { run.status = 'writing'; run.firstTextAt = Date.now(); }
-        run.text += ev.t;
+        if (!run.text && !run.pending) { run.status = 'writing'; run.firstTextAt = Date.now(); stepDone(run, 'wait'); stepStart(run, 'write', 'كتابة الرد'); }
+        run.pending += ev.t;
         schedulePaint(run);
       } else if (ev.status) {
         if (ev.status === 'thinking') run.sawThinking = true;
@@ -1702,11 +1838,16 @@ async function tryStream(chat, run, payload) {
     }
     parser.feed(dec.decode() + '\n');
     if (run.stopped) return { stopped: true };
+    if (streamErr || !finished) flushPending(run);
     if (streamErr) return { retry: RETRYABLE_CODES.has(streamErr.code) && !run.text, error: streamErr.error };
     if (!finished) return { retry: !run.text, error: 'انقطع الاتصال أثناء استقبال الرد.' };
+    await drainRun(run);
+    if (run.stopped || isStale(run)) return { stopped: true };
+    stepDone(run, 'write');
     return { ok: true, done: finished };
   } catch (e) {
     if (run.stopped) return { stopped: true };
+    flushPending(run);
     if (timedOut) return { retry: true, error: 'تأخر الرد أو توقف الاتصال. حاول مرة أخرى.' };
     if (!navigator.onLine) return { retry: false, error: 'لا يوجد اتصال بالإنترنت.' };
     return { retry: true, error: e instanceof TypeError ? 'انقطع الاتصال بالخادم.' : (e.message || 'تعذر إكمال الطلب.') };
@@ -1722,11 +1863,13 @@ async function runFilesRequest(chat, run, last) {
   run.status = 'files';
   if (run.node) paintRun(run);
   const payload = buildPayload(chat, run, last, { mode: run.kind === 'fix' ? 'fix' : 'files' });
+  stepStart(run, 'gen', run.kind === 'fix' ? 'تحليل الكود وتجهيز التعديلات' : 'تجهيز الملفات المطلوبة');
   const rf = await requestFiles(run, payload);
   if (rf.stopped) return finishStopped(chat, run);
   if (isStale(run)) return;
   const data = rf.data;
   if (!data) return failRun(chat, run, rf.error, { keepPartial: false });
+  stepDone(run, 'gen');
 
   const fix = run.kind === 'fix';
   const sources = sourceFilesFor(chat);
@@ -1743,6 +1886,7 @@ async function runFilesRequest(chat, run, last) {
     if (fix && !findOriginalFile(sources, f.name)) f.warnings.push({ sev: 'warning', file: f.name, line: 0, msg: 'هذا الملف غير موجود بين الملفات المرفوعة، فلن تظهر له مقارنة. راجعه بعناية.' });
   });
   if (!files.length && !fix) return failRun(chat, run, 'لم يتم إنشاء أي ملفات صالحة.', { keepPartial: false });
+  files.forEach((f) => stepAdd(run, (findOriginalFile(sources, f.name) ? 'تعديل ' : 'إنشاء ') + f.name, f.content.split('\n').length + ' سطر'));
 
   let message = data.message || (files.length ? 'تم إنشاء الملفات المطلوبة. يمكنك تحميلها من الأسفل.' : 'لم أجد مشكلة فعلية تحتاج تعديلًا.');
   if (fix && !files.length) message += '\n\nلم يُرجَع أي ملف معدّل' + (unchanged.length ? ' (الملفات التي أعادها النموذج مطابقة للأصل).' : '.');

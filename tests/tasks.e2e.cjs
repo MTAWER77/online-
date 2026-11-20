@@ -12,8 +12,7 @@ const { chromium } = require('playwright'); const assert = require('node:assert/
   });
   await page.goto('http://localhost:8799');
   await page.setInputFiles('#fileInput', { name: 'a.js', mimeType: 'text/javascript', buffer: Buffer.from('const x = 0;\n') });
-  await page.click('#codeFixToggle');
-  await page.fill('#input', '1. عدّل ملف HTML وأضف زر\n2. أضف دالة JavaScript للزر\n3. حسّن ستايل CSS للزر');
+  await page.fill('#input', '1. اعمل ملف HTML وأضف زر\n2. أضف دالة JavaScript للزر\n3. حسّن ستايل CSS للزر');
   await page.click('#sendBtn');
   await page.waitForSelector('[data-act="resume"]', { timeout: 15000 });
   assert.equal(calls.length, 2, 'stopped at the failed task, did not run the rest');

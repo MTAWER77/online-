@@ -278,3 +278,35 @@ html[data-theme="dark"] .reason,html[data-theme="dark"] .srcs{border-inline-star
 .task-bar{height:5px;border-radius:3px;background:rgba(127,127,127,.25);overflow:hidden;margin-bottom:8px}
 .task-bar i{display:block;height:100%;background:currentColor;transition:width .3s}
 .task-item{padding:2px 0;opacity:.75}.task-item.running{opacity:1;font-weight:600}.task-item.failed{color:#8e2925;opacity:1}
+
+/* Attach sheet: three icon tiles (camera / photos / files) */
+.attach-menu.attach-sheet{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;width:min(340px,calc(100vw - 20px));padding:12px;border-radius:20px}
+.attach-menu.attach-sheet[hidden]{display:none}
+.attach-menu.attach-sheet button{flex-direction:column;justify-content:center;gap:9px;padding:14px 6px 12px;border-radius:16px;background:var(--soft);text-align:center;font-size:13px;font-weight:600}
+.attach-menu.attach-sheet button:hover{background:var(--line)}
+.attach-menu.attach-sheet button:active{transform:scale(.97)}
+.attach-menu.attach-sheet .attach-ico{width:48px;height:48px;border-radius:50%;display:grid;place-items:center;background:var(--panel,#fff);color:var(--ink)}
+.attach-menu.attach-sheet button svg{color:currentColor}
+html[data-theme="dark"] .attach-menu.attach-sheet button svg{color:currentColor}
+@media(max-width:760px){.attach-menu.attach-sheet{inset-inline:10px;width:auto}}
+
+/* Scroll-to-bottom pill, activity steps, zip attachment card */
+.to-bottom{position:absolute;inset-inline-start:50%;bottom:calc(100% + 10px);transform:translateX(-50%);width:38px;height:38px;border-radius:50%;border:1px solid var(--line-strong,#d9d9d4);background:var(--panel,#fff);color:var(--ink);display:grid;place-items:center;box-shadow:0 4px 16px rgba(0,0,0,.14);z-index:20;cursor:pointer}
+.to-bottom[hidden]{display:none}
+html[dir="rtl"] .to-bottom{transform:translateX(50%)}
+.steps{display:flex;flex-direction:column;gap:7px;margin:4px 0 10px;padding:2px 0;direction:rtl;font-size:13.5px}
+.step{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 9px;color:var(--ink-soft)}
+.step-dot{flex:none;width:9px;height:9px;border-radius:50%;border:2px solid var(--muted,#999);align-self:center;box-sizing:border-box}
+.step.done .step-dot{background:var(--muted,#999);border-color:var(--muted,#999)}
+.step.run .step-dot{border-color:var(--ink);border-top-color:transparent;animation:stepspin .8s linear infinite}
+.step.fail .step-dot{border-color:#d33;background:#d33}
+.step-label{font-weight:600;color:var(--ink)}
+.step-detail{color:var(--muted);font-size:12px;overflow-wrap:anywhere;direction:ltr;unicode-bidi:plaintext}
+@keyframes stepspin{to{transform:rotate(360deg)}}
+.steps-sum{margin:2px 0 10px;font-size:13px;color:var(--muted)}
+.steps-sum>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:7px}
+.steps-sum>summary::-webkit-details-marker{display:none}
+.steps-sum[open]>summary{margin-bottom:8px}
+.st-ico{width:14px;height:14px;display:inline-block;border-radius:4px;border:2px solid var(--muted,#999);box-sizing:border-box}
+.user-attachment.is-project small{opacity:.7;font-size:11px;margin-inline-start:2px}
+@media (prefers-reduced-motion:reduce){.step.run .step-dot{animation:none}}
