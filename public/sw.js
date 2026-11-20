@@ -1,5 +1,5 @@
-const CACHE = 'nova-ai-v0.4';
-const SHELL = ['/', '/index.html', '/styles.css', '/app.js', '/render.js', '/manifest.webmanifest', '/icon.svg', '/icon-192.png', '/icon-512.png'];
+const CACHE = 'nova-ai-v0.5';
+const SHELL = ['/', '/index.html', '/styles.css', '/app.js', '/render.js', '/godot.js', '/manifest.webmanifest', '/icon.svg', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
