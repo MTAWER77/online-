@@ -1,4 +1,4 @@
-const CACHE = 'nova-ai-v0.15.2';
+const CACHE = 'nova-ai-v0.16';
 const SHELL = ['/', '/index.html', '/styles.css', '/app.js', '/render.js', '/godot.js', '/tasks.js', '/context.js', '/pdf.js', '/manifest.webmanifest', '/icon.svg', '/icon-192.png', '/icon-512.png'];
 
 self.addEventListener('install', (e) => {

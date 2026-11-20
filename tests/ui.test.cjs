@@ -22,7 +22,7 @@ const test = async (n, f) => { try { await f(); passed++; console.log('PASS', n)
 
   await test('page loads without errors; mode chips order DeepThink, Search above composer', async () => {
     const labels = await page.$$eval('#modeBar .mode-chip span', n => n.map(x => x.textContent));
-    assert.deepEqual(labels, ['DeepThink', 'Search']);
+    assert.deepEqual(labels, ['DeepThink', 'Search', 'تلقائي']); // third chip = model picker (auto)
     const bar = await page.$eval('#modeBar', n => n.getBoundingClientRect().bottom);
     const comp = await page.$eval('#composer', n => n.getBoundingClientRect().top);
     assert.ok(bar <= comp + 1 && comp - bar < 20, `bar ${bar} composer ${comp}`);

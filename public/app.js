@@ -1058,6 +1058,7 @@ function rowAI(m, idx, isLast, sourceFiles) {
     (isLast && cut ? '<button type="button" class="act accent" data-act="continue">' + svg(IC.play, 15) + '<span>متابعة</span></button>' : '') +
     (isLast && T && T.resumable(m.taskState) ? '<button type="button" class="act accent" data-act="resume">' + svg(IC.play, 15) + '<span>استكمال المهام</span></button>' : '') +
     (isLast ? '<button type="button" class="act" data-act="regen">' + svg(IC.refresh, 15) + '<span>إعادة التوليد</span></button>' : '');
+  if (m.meta && m.meta.model) acts.append(mk('span', 'model-tag', '')), acts.lastChild.textContent = modelTagText(m.meta);
   body.append(acts);
   r.append(body);
   return r;
@@ -1068,6 +1069,7 @@ function renderList() {
   chats.slice().sort((a, b) => b.updated - a.updated).forEach((c) => {
     const row = mk('div', 'chat-item' + (c.id === activeId ? ' active' : '') + (runs.has(c.id) ? ' busy' : ''));
     row.dataset.id = c.id;
+    row.style.setProperty('--i', String(Math.min(frag.childNodes.length, 12)));
     const open = mk('button', 'chat-open');
     open.type = 'button';
     open.dir = 'auto';
@@ -1093,6 +1095,7 @@ el.list.addEventListener('click', (e) => {
   else if (btn.dataset.do === 'delete') removeChat(id);
 });
 
+let renderedKey = { id: null, n: 0, hadRun: false };
 function renderMessages() {
   const chat = current();
   el.title.textContent = chat ? chat.title : 'NOVA AI';
@@ -1126,6 +1129,10 @@ function renderMessages() {
     frag.append(m.role === 'user' ? rowUser(m) : rowAI(m, i, i === last && !run, sources));
   });
   el.msgs.append(frag);
+  // Rows that were already on screen must not replay their entrance (it made the whole chat flash when a reply finished).
+  const prevN = renderedKey.id === chat.id ? (renderedKey.hadRun ? chat.messages.length : renderedKey.n) : 0;
+  [...el.msgs.children].slice(0, prevN).forEach((r) => r.classList.add('still'));
+  renderedKey = { id: chat.id, n: chat.messages.length, hadRun: !!run };
   if (run) attachRunNode(run);
   else if (chat.lastError) showErrorRow(chat);
   followBottom = true;
@@ -1307,7 +1314,7 @@ function schedulePaint(run) { if (!run.raf) run.raf = requestAnimationFrame(() =
 
 /* ---------- smooth, readable reveal: word by word, slow and calm like Claude / ChatGPT ---------- */
 // Rates are characters per second. Lower base/max = slower typing. finishSecs caps how long the backlog may take once the model is done.
-const REVEAL = { base: 26, gain: 0.25, max: 70, finishSecs: 18, finishMax: 220 };
+const REVEAL = { base: 40, gain: 0.35, max: 110, finishSecs: 12, finishMax: 320 };
 const FADE_MS = 520;
 function revealStep(run) {
   const now = performance.now();
@@ -1465,6 +1472,7 @@ function updateComposerState() {
   const busy = isBusy(current());
   el.send.innerHTML = busy ? STOP_ICON : SEND_ICON;
   el.send.setAttribute('aria-label', busy ? 'إيقاف' : 'إرسال');
+  if (el.send.classList.contains('is-stop') !== busy) { el.send.classList.remove('swap'); void el.send.offsetWidth; el.send.classList.add('swap'); }
   el.send.classList.toggle('is-stop', busy);
 }
 
@@ -1827,6 +1835,7 @@ function buildPayload(chat, run, last, extra = {}, override) {
     context: buildContextNote(chat),
     project: proj.text,
     avoidModels: getAvoidModels(),
+    ...modelPrefPayload(),
     ...extra,
   };
 }
@@ -2394,10 +2403,111 @@ quotaEl.off.onclick = async () => {
 };
 quotaEl.box.onclick = () => el.settingsBtn.click();
 
+
+/* ---------- model picker: auto / Groq / Gemini / OpenRouter ---------- */
+const MODEL_PREF_KEY = 'nova_ai_model_pref_v1';
+const PROVIDER_NAMES = { groq: 'Groq', gemini: 'Gemini', openrouter: 'OpenRouter' };
+const MODEL_ID_RE = /^[\w.\-:/]{1,100}$/;
+let modelCatalog = null;
+function getModelPref() {
+  try {
+    const p = JSON.parse(localStorage.getItem(MODEL_PREF_KEY) || 'null');
+    if (p && PROVIDER_NAMES[p.provider]) return { provider: p.provider, model: typeof p.model === 'string' && MODEL_ID_RE.test(p.model) ? p.model : '' };
+  } catch { /* ignore */ }
+  return { provider: 'auto', model: '' };
+}
+function setModelPref(p) {
+  try { if (p.provider === 'auto') localStorage.removeItem(MODEL_PREF_KEY); else localStorage.setItem(MODEL_PREF_KEY, JSON.stringify(p)); } catch { /* ignore */ }
+  renderModelChip();
+}
+function modelPrefPayload() {
+  const p = getModelPref();
+  return p.provider === 'auto' ? {} : { provider: p.provider, ...(p.model ? { model: p.model } : {}) };
+}
+const shortModel = (id) => String(id || '').split('/').pop().replace(/:free$/, '');
+function modelTagText(meta) { return (PROVIDER_NAMES[meta.provider] || meta.provider || '') + ' · ' + shortModel(meta.model); }
+function renderModelChip() {
+  const chip = $('#modelChip'), lab = $('#modelChipLabel');
+  if (!chip || !lab) return;
+  const p = getModelPref();
+  lab.textContent = p.provider === 'auto' ? 'تلقائي' : PROVIDER_NAMES[p.provider] + (p.model ? ' · ' + shortModel(p.model) : '');
+  chip.classList.toggle('active', p.provider !== 'auto');
+}
+async function loadModelCatalog() {
+  if (modelCatalog) return modelCatalog;
+  try {
+    const r = await fetch('/api/models', { cache: 'no-store' });
+    if (r.ok) { const j = await r.json(); if (Array.isArray(j.providers)) modelCatalog = j.providers; }
+  } catch { /* ignore */ }
+  return modelCatalog || Object.keys(PROVIDER_NAMES).map((id) => ({ id, name: PROVIDER_NAMES[id], configured: true, models: [] }));
+}
+function modelRow(i, title, sub, selected, disabled, onPick) {
+  const b = mk('button', 'model-row' + (selected ? ' sel' : '') + (disabled ? ' off' : ''));
+  b.type = 'button'; b.disabled = !!disabled; b.style.setProperty('--i', String(i));
+  const t = mk('span', 'mr-text'); const n = mk('b'); n.textContent = title; n.dir = 'auto'; t.append(n);
+  if (sub) { const s = mk('small'); s.textContent = sub; t.append(s); }
+  b.append(t, mk('i', 'mr-check', svg('<path d="M20 6 9 17l-5-5"/>', 16)));
+  b.onclick = onPick;
+  return b;
+}
+async function paintModelList() {
+  const list = $('#modelList'); if (!list) return;
+  const cat = await loadModelCatalog();
+  const pref = getModelPref();
+  const frag = document.createDocumentFragment();
+  let i = 0;
+  frag.append(modelRow(i++, 'تلقائي', 'الأنسب والأسرع، مع بدائل تلقائية لو حصل خطأ', pref.provider === 'auto', false, () => pick({ provider: 'auto', model: '' })));
+  cat.forEach((p) => {
+    const head = mk('div', 'model-group'); head.style.setProperty('--i', String(i++));
+    const nm = mk('span'); nm.textContent = p.name || PROVIDER_NAMES[p.id] || p.id; head.append(nm);
+    if (!p.configured) head.append(mk('em', '', 'غير مفعّل على السيرفر'));
+    frag.append(head);
+    frag.append(modelRow(i++, 'تلقائي ضمن ' + (p.name || p.id), 'يختار أول نموذج متاح عند ' + (p.name || p.id), pref.provider === p.id && !pref.model, !p.configured, () => pick({ provider: p.id, model: '' })));
+    (p.models || []).forEach((m) => {
+      const tags = [m.think ? 'تفكير' : '', m.vision ? 'صور' : ''].filter(Boolean).join(' · ');
+      frag.append(modelRow(i++, shortModel(m.id), (tags ? tags + ' · ' : '') + m.id, pref.provider === p.id && pref.model === m.id, !p.configured, () => pick({ provider: p.id, model: m.id })));
+    });
+  });
+  list.replaceChildren(frag);
+}
+function pick(p) {
+  setModelPref(p);
+  closeModelSheet();
+  toast(p.provider === 'auto' ? 'الاختيار: تلقائي.' : 'تم اختيار ' + PROVIDER_NAMES[p.provider] + (p.model ? ' · ' + shortModel(p.model) : '') + '.');
+}
+function openModelSheet() {
+  const sh = $('#modelSheet'), sc = $('#modelScrim'); if (!sh) return;
+  sh.classList.remove('closing'); sc.classList.remove('closing');
+  sh.hidden = false; sc.hidden = false;
+  $('#modelChip')?.setAttribute('aria-expanded', 'true');
+  const pref = getModelPref(); const sel = $('#modelCustomProv'); if (sel && pref.provider !== 'auto') sel.value = pref.provider;
+  paintModelList();
+}
+function closeModelSheet() {
+  const sh = $('#modelSheet'), sc = $('#modelScrim'); if (!sh || sh.hidden) return;
+  $('#modelChip')?.setAttribute('aria-expanded', 'false');
+  sh.classList.add('closing'); sc.classList.add('closing');
+  setTimeout(() => { sh.hidden = true; sc.hidden = true; sh.classList.remove('closing'); sc.classList.remove('closing'); }, 220);
+}
+$('#modelChip')?.addEventListener('click', openModelSheet);
+$('#modelClose')?.addEventListener('click', closeModelSheet);
+$('#modelScrim')?.addEventListener('click', closeModelSheet);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModelSheet(); });
+$('#modelCustomBtn')?.addEventListener('click', () => {
+  const id = ($('#modelCustomId').value || '').trim();
+  if (!MODEL_ID_RE.test(id)) { toast('اكتب معرّف نموذج صحيح (حروف وأرقام و / . - : فقط).'); return; }
+  pick({ provider: $('#modelCustomProv').value, model: id });
+  $('#modelCustomId').value = '';
+});
+$('#modelCustomId')?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#modelCustomBtn').click(); } });
+
 /* ---------- boot ---------- */
 
 if (!current()) activeId = null;
 renderModes();
+renderModelChip();
+el.list.classList.add('intro');
+setTimeout(() => el.list.classList.remove('intro'), 1200);
 applyFs();
 renderList();
 renderMessages();

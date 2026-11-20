@@ -323,3 +323,69 @@ button:active:not(:disabled){transform:scale(.96)}
 .chat-item{transition:background-color .18s ease}
 @media (prefers-reduced-motion:reduce){.fw,.steps>.step:last-child{animation:none}}
 .code-acts{display:flex;align-items:center;gap:2px}
+
+/* ===== v0.16: model picker sheet + richer motion ===== */
+.model-chip .chev{opacity:.6;transition:transform .25s cubic-bezier(.22,.7,.25,1)}
+.model-chip[aria-expanded="true"] .chev{transform:rotate(180deg)}
+.model-chip{max-width:230px}.model-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sheet-scrim{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.38);backdrop-filter:blur(2px);animation:scrimIn .22s ease both}
+.sheet-scrim[hidden],.model-sheet[hidden]{display:none}
+.sheet-scrim.closing{animation:scrimOut .22s ease both}
+.model-sheet{position:fixed;z-index:71;inset-inline:0;bottom:0;margin-inline:auto;width:min(560px,100%);max-height:82vh;display:flex;flex-direction:column;background:var(--panel,#fff);color:var(--text);border:1px solid var(--line);border-bottom:0;border-radius:22px 22px 0 0;box-shadow:0 -12px 40px rgba(0,0,0,.2);padding:8px 14px max(14px,env(safe-area-inset-bottom));animation:sheetIn .38s cubic-bezier(.2,.9,.25,1.05) both}
+.model-sheet.closing{animation:sheetOut .22s cubic-bezier(.4,0,1,1) both}
+.sheet-grab{width:42px;height:4px;border-radius:4px;background:var(--line-strong);margin:2px auto 8px}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;padding:2px 2px 8px}.sheet-head h3{margin:0;font-size:16px}
+.model-list{overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:6px;padding:2px 0 10px;direction:rtl}
+.model-group{display:flex;align-items:center;gap:8px;margin-top:8px;padding:0 4px;font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.02em;animation:fadeUp .4s cubic-bezier(.22,.7,.25,1) both;animation-delay:calc(var(--i,0)*24ms)}
+.model-group em{font-style:normal;font-weight:500;color:#c0762b;font-size:11px}
+.model-row{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;text-align:start;padding:11px 13px;border:1px solid var(--line);border-radius:14px;background:var(--soft);color:var(--text);transition:background-color .18s,border-color .18s,transform .12s;animation:fadeUp .4s cubic-bezier(.22,.7,.25,1) both;animation-delay:calc(var(--i,0)*24ms)}
+.model-row:hover{background:var(--soft-2)}
+.model-row .mr-text{display:flex;flex-direction:column;gap:2px;min-width:0}.model-row b{font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.model-row small{font-size:11.5px;color:var(--muted);direction:ltr;unicode-bidi:plaintext;text-align:start;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.model-row .mr-check{flex:none;width:22px;height:22px;display:grid;place-items:center;border-radius:50%;background:var(--ink);color:var(--panel,#fff);transform:scale(0);opacity:0;transition:transform .3s cubic-bezier(.3,1.6,.5,1),opacity .2s}
+.model-row.sel{border-color:var(--ink);background:var(--panel,#fff)}.model-row.sel .mr-check{transform:scale(1);opacity:1}
+.model-row.off{opacity:.45}
+.model-custom{border-top:1px solid var(--line);padding-top:10px;display:flex;flex-direction:column;gap:7px}.mc-title{font-size:12px;color:var(--muted)}
+.mc-line{display:flex;gap:7px;direction:ltr}.mc-line select,.mc-line input{min-width:0;border:1px solid var(--line-strong);background:var(--soft);color:var(--text);border-radius:11px;padding:9px 10px;font:inherit;font-size:13px}.mc-line input{flex:1}
+.model-tag{margin-inline-start:auto;align-self:center;font-size:11px;color:var(--muted);direction:ltr;opacity:.8;animation:fadeUp .5s ease both}
+@keyframes sheetIn{from{transform:translateY(100%)}to{transform:translateY(0)}}
+@keyframes sheetOut{to{transform:translateY(100%)}}
+@keyframes scrimIn{from{opacity:0}to{opacity:1}}
+@keyframes scrimOut{to{opacity:0}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+
+/* rows already on screen never replay their entrance */
+.row.still{animation:none}
+/* toast */
+.toast:not([hidden]){animation:toastIn .32s cubic-bezier(.2,.9,.25,1.05) both}
+@keyframes toastIn{from{opacity:0;transform:translate(-50%,14px) scale(.96)}to{opacity:1;transform:translate(-50%,0) scale(1)}}
+/* send <-> stop icon swap */
+.send.swap svg{animation:iconSwap .34s cubic-bezier(.3,1.5,.5,1) both}
+@keyframes iconSwap{from{transform:scale(.4) rotate(-90deg);opacity:0}to{transform:scale(1) rotate(0);opacity:1}}
+.send:not(:disabled):hover{transform:translateY(-1px)}
+/* composer focus glow */
+.composer{transition:border-color .2s,box-shadow .25s}
+.composer:focus-within{border-color:var(--ink);box-shadow:0 0 0 4px rgba(23,23,23,.07),0 6px 22px rgba(0,0,0,.07)}
+html[data-theme="dark"] .composer:focus-within{box-shadow:0 0 0 4px rgba(255,255,255,.07),0 6px 22px rgba(0,0,0,.35)}
+/* chips pop when switched on */
+.mode-chip.active{animation:chipPop .3s cubic-bezier(.3,1.6,.5,1)}
+@keyframes chipPop{0%{transform:scale(.92)}100%{transform:scale(1)}}
+/* sidebar list: staggered entrance only on first load */
+.chat-list.intro .chat-item{animation:fadeUp .45s cubic-bezier(.22,.7,.25,1) both;animation-delay:calc(var(--i,0)*45ms)}
+.chat-item.active{transition:background-color .25s,border-color .25s}
+/* welcome screen */
+.welcome h2{animation:fadeUp .6s cubic-bezier(.22,.7,.25,1) both}
+.welcome h2 b{background:linear-gradient(100deg,var(--muted) 20%,var(--ink) 50%,var(--muted) 80%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;-webkit-text-fill-color:transparent;animation:shimmer 5s linear infinite}
+.welcome p{animation:fadeUp .6s .08s cubic-bezier(.22,.7,.25,1) both}
+.welcome .card{animation:fadeUp .55s cubic-bezier(.22,.7,.25,1) both;transition:transform .18s cubic-bezier(.22,.7,.25,1),box-shadow .2s,border-color .2s,background-color .2s}
+.welcome .card:nth-child(1){animation-delay:.16s}.welcome .card:nth-child(2){animation-delay:.23s}.welcome .card:nth-child(3){animation-delay:.30s}.welcome .card:nth-child(4){animation-delay:.37s}.welcome .card:nth-child(n+5){animation-delay:.44s}
+.welcome .card:hover{transform:translateY(-3px);box-shadow:0 10px 26px rgba(0,0,0,.09);border-color:var(--line-strong)}
+.welcome .card:active{transform:scale(.98)}
+/* page + theme transitions */
+body{animation:pageIn .5s ease both}
+@keyframes pageIn{from{opacity:0}to{opacity:1}}
+.msgs,.sidebar,.topbar,.composer,.composer-wrap,.card,.code-head{transition:background-color .3s,border-color .3s,color .3s}
+/* panels open smoothly */
+.act{transition:background-color .15s,transform .12s}.act:active{transform:scale(.95)}
+.srcs,.reason,.steps-sum{transition:opacity .2s}
+@media (prefers-reduced-motion:reduce){.model-sheet,.sheet-scrim,.model-row,.model-group,.toast,.welcome h2,.welcome p,.welcome .card,.welcome h2 b,body,.chat-list.intro .chat-item,.send.swap svg,.mode-chip.active{animation:none!important}}

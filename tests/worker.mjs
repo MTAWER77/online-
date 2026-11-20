@@ -144,13 +144,18 @@ function readKeys(env, pluralName, singleName) {
   return [...new Set(values.map((v) => String(v).trim()).filter(Boolean))].slice(0, MAX_KEYS_PER_PROVIDER);
 }
 
+// Optional comma/newline separated model ids from an env var (lets you add models to the picker without touching code).
+const listEnv = (v) => String(v || "").split(/[\s,]+/).map((x) => x.trim()).filter((x) => /^[\w.\-:\/]{1,100}$/.test(x)).slice(0, 30);
+const PROVIDER_IDS = ["groq", "gemini", "openrouter"];
+const MODEL_ID_RE = /^[\w.\-:\/]{1,100}$/;
+
 function getProviders(env) {
   return [
     {
       id: "groq",
       name: "Groq",
       keys: readKeys(env, "GROQ_API_KEYS", "GROQ_API_KEY"),
-      models: [...new Set([env.GROQ_MODEL, ...TEXT_MODELS].filter(Boolean))],
+      models: [...new Set([env.GROQ_MODEL, ...TEXT_MODELS, ...listEnv(env.GROQ_MODELS)].filter(Boolean))],
       visionModels: [env.GROQ_VISION_MODEL || VISION_MODEL],
       searchModels: SEARCH_MODELS,
       url: GROQ_API,
@@ -159,7 +164,7 @@ function getProviders(env) {
       id: "gemini",
       name: "Gemini",
       keys: readKeys(env, "GEMINI_API_KEYS", "GEMINI_API_KEY"),
-      models: [env.GEMINI_MODEL || "gemini-3.8-flash"],
+      models: [...new Set([env.GEMINI_MODEL || "gemini-3.8-flash", ...listEnv(env.GEMINI_MODELS)])],
       visionModels: [env.GEMINI_MODEL || "gemini-3.8-flash"],
       searchModels: [],
       url: GEMINI_API,
@@ -168,7 +173,7 @@ function getProviders(env) {
       id: "openrouter",
       name: "OpenRouter",
       keys: readKeys(env, "OPENROUTER_API_KEYS", "OPENROUTER_API_KEY"),
-      models: [...new Set([env.OPENROUTER_MODEL || "recursive/flint-v1.0:free", env.OPENROUTER_FALLBACK_MODEL || "openrouter/free"])],
+      models: [...new Set([env.OPENROUTER_MODEL || "recursive/flint-v1.0:free", env.OPENROUTER_FALLBACK_MODEL || "openrouter/free", ...listEnv(env.OPENROUTER_MODELS)])],
       // Flint is text-only; images use the vision-capable router.
       visionModels: [env.OPENROUTER_VISION_MODEL || "openrouter/free"],
       searchModels: [],
@@ -207,7 +212,14 @@ function modelCandidates(provider, opts) {
   }
   const avoid = new Set(opts.avoidModels || []);
   const filtered = list.filter((m) => !avoid.has(m));
-  return filtered.length ? filtered : list; // never end up with nothing only because of a cooldown hint
+  let out = filtered.length ? filtered : list; // never end up with nothing only because of a cooldown hint
+  // A model the user picked explicitly goes first (even if it was cooling down), when it can do what this request needs.
+  if (opts.preferModel && opts.preferProvider === provider.id) {
+    const caps = modelCaps(provider.id, opts.preferModel);
+    const fits = opts.search ? caps.search : opts.hasImages ? caps.vision : true;
+    if (fits) out = [opts.preferModel, ...out.filter((m) => m !== opts.preferModel)];
+  }
+  return out;
 }
 
 function buildPayload(model, messages, opts, provider, degrade) {
@@ -312,7 +324,8 @@ async function attemptOnce(provider, model, key, messages, opts, degrade, outerS
  * ctx: { env, messages, signal, onStatus }
  */
 async function selectUpstream(ctx, opts = {}) {
-  const providers = configuredProviders(ctx.env);
+  let providers = configuredProviders(ctx.env);
+  if (opts.preferProvider) providers = [...providers.filter((p) => p.id === opts.preferProvider), ...providers.filter((p) => p.id !== opts.preferProvider)];
   const degraded = [];
   let lastStatus = 503;
   let lastDetails = "No configured provider keys.";
@@ -346,6 +359,7 @@ async function selectUpstream(ctx, opts = {}) {
         }
 
         if (result.ok) {
+          if (opts.preferProvider && (provider.id !== opts.preferProvider || (opts.preferModel && model !== opts.preferModel))) degraded.push({ code: "pref_unavailable", provider: provider.id, model });
           return { ...result, model, provider: provider.id, degraded, thinkApplied: !!(opts.think && modelCaps(provider.id, model).reasoning && !degrade.noReasoning) };
         }
 
@@ -420,6 +434,8 @@ function parseExtras(body) {
     context: str(body.context, MAX_CONTEXT_NOTE_CHARS),
     project: str(body.project, MAX_PROJECT_CHARS),
     intent: typeof body.intent === "string" && INTENT_HINTS[body.intent] !== undefined ? body.intent : "",
+    provider: PROVIDER_IDS.includes(body.provider) ? body.provider : "",
+    model: typeof body.model === "string" && MODEL_ID_RE.test(body.model) ? body.model : "",
     avoidModels: Array.isArray(body.avoidModels) ? body.avoidModels.filter((m) => typeof m === "string").slice(0, 20) : [],
   };
 }
@@ -431,6 +447,7 @@ const NOTICE_TEXT = {
   search_fallback: "بحث Groq غير متاح الآن، فتم البحث عبر محرك بديل وهذه نتائجه.",
   search_no_sources: "البحث لم يرجّع روابط مصادر لهذا الرد، فتحقق من المعلومات المهمة بنفسك.",
   think_dropped: "الموديل المستخدم لا يدعم Think، فتم الرد بالوضع العادي.",
+  pref_unavailable: "النموذج اللي اخترته مش متاح أو مش بيدعم الطلب ده دلوقتي، فتم استخدام نموذج بديل.",
 };
 
 const SSE_HEADERS = {
@@ -549,6 +566,7 @@ async function runChat({ env, validated, extras, wantSearch, think, signal, send
   const base = {
     stream: true, think, hasImages: validated.hasImages, maxTokens: 8192,
     avoidModels: extras.avoidModels, context: extras.context, project: extras.project, intent: extras.intent,
+    preferProvider: extras.provider, preferModel: extras.provider ? extras.model : "",
   };
   const notice = (code, suffix) => send({ notice: code, text: NOTICE_TEXT[code] + (suffix || ""), code });
   let searchUnavailable = false;
@@ -731,6 +749,7 @@ async function handleGenerateFiles(request, env) {
 
   const sel = await selectUpstream({ env, messages: validated.messages, signal: abort.signal }, {
     stream: false, think: body.think === true, maxTokens: 8192, temperature: 0.2, systemPrompt, avoidModels: extras.avoidModels,
+    preferProvider: extras.provider, preferModel: extras.provider ? extras.model : "",
   });
   if (sel.aborted) return json({ error: "تم إلغاء الطلب." }, 499);
   if (!sel.ok) {
@@ -960,6 +979,17 @@ export default {
         providers, maxImagesPerRequest: MAX_IMAGES,
         searchProvider: "Groq Browser Search (Groq keys required); other providers fall back to a no-search answer with a notice",
         note: "Provider/model availability and free-tier limits depend on each provider account.",
+      });
+    }
+
+    if (url.pathname === "/api/models") {
+      // Only ids and booleans: never keys.
+      return json({
+        providers: getProviders(env).map((p) => ({
+          id: p.id, name: p.name, configured: p.keys.length > 0,
+          models: p.models.map((id) => ({ id, vision: modelCaps(p.id, id).vision, think: !!modelCaps(p.id, id).reasoning })),
+          search: p.searchModels.length > 0,
+        })),
       });
     }
 
