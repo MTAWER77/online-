@@ -1,4 +1,4 @@
-// NOVA AI - Multi Provider Worker (v0.5)
+// NOVA AI - Multi Provider Worker (v0.6)
 // Groq primary -> Gemini fallback -> OpenRouter fallback.
 // API keys live ONLY in Cloudflare Worker Secrets (never in frontend or GitHub).
 //
@@ -674,6 +674,170 @@ async function handleGenerateFiles(request, env) {
   }, 200, { "X-NOVA-Provider": sel.provider, "X-NOVA-Model": sel.model });
 }
 
+
+/* ---------------- auth: username/password accounts + message quota ----------------
+ * Secrets:  SESSION_SECRET (random string, enables auth), ADMIN_USERNAME + ADMIN_PASSWORD (unlimited account)
+ * KV:       AUTH (stores users, usage counters, failed-login counters)
+ * Vars:     FREE_LIMIT (default 4 messages per normal account), FREE_PERIOD ("total" default | "daily")
+ * If SESSION_SECRET is not set, auth is disabled (open mode) so existing deployments keep working.
+ */
+const SESSION_TTL_S = 60 * 60 * 24 * 30;
+const COOKIE_NAME = "nova_session";
+const PBKDF2_ITER = 100000;
+const MAX_FAILS = 8;
+const FAIL_WINDOW_S = 900;
+
+const authEnabled = (env) => !!env.SESSION_SECRET;
+const freeLimit = (env) => { const n = parseInt(env.FREE_LIMIT, 10); return Number.isFinite(n) && n >= 0 ? n : 4; };
+const normUser = (u) => String(u || "").trim().toLowerCase();
+const validUsername = (u) => /^[A-Za-z0-9_.\u0600-\u06FF-]{3,24}$/.test(u);
+const isAdminName = (env, u) => !!env.ADMIN_USERNAME && normUser(env.ADMIN_USERNAME) === normUser(u);
+
+const b64u = {
+  enc: (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""),
+  dec: (str) => Uint8Array.from(atob(str.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)),
+};
+const te = new TextEncoder();
+
+function safeEqual(a, b) {
+  const x = te.encode(String(a)), y = te.encode(String(b));
+  let diff = x.length ^ y.length;
+  for (let i = 0; i < Math.max(x.length, y.length); i++) diff |= (x[i] || 0) ^ (y[i] || 0);
+  return diff === 0;
+}
+
+async function hmac(secret, data) {
+  const key = await crypto.subtle.importKey("raw", te.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return b64u.enc(await crypto.subtle.sign("HMAC", key, te.encode(data)));
+}
+
+async function hashPassword(password, saltB64, iter = PBKDF2_ITER) {
+  const key = await crypto.subtle.importKey("raw", te.encode(password), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: b64u.dec(saltB64), iterations: iter }, key, 256);
+  return b64u.enc(bits);
+}
+
+async function makeToken(env, username) {
+  const payload = b64u.enc(te.encode(JSON.stringify({ u: username, exp: Math.floor(Date.now() / 1000) + SESSION_TTL_S })));
+  return payload + "." + (await hmac(env.SESSION_SECRET, payload));
+}
+
+async function readSession(request, env) {
+  if (!authEnabled(env)) return null;
+  const m = (request.headers.get("Cookie") || "").match(new RegExp("(?:^|;\\s*)" + COOKIE_NAME + "=([^;]+)"));
+  if (!m) return null;
+  const [payload, sig] = m[1].split(".");
+  if (!payload || !sig || !safeEqual(sig, await hmac(env.SESSION_SECRET, payload))) return null;
+  try {
+    const data = JSON.parse(new TextDecoder().decode(b64u.dec(payload)));
+    if (!data.u || !data.exp || data.exp < Date.now() / 1000) return null;
+    return { username: data.u, admin: isAdminName(env, data.u) };
+  } catch { return null; }
+}
+
+const sessionCookie = (value, maxAge) =>
+  `${COOKIE_NAME}=${value}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;
+
+const usageKey = (env, username) => {
+  const base = "use:" + normUser(username);
+  return env.FREE_PERIOD === "daily" ? `${base}:${new Date().toISOString().slice(0, 10)}` : base;
+};
+
+async function getUsed(env, username) {
+  const v = await env.AUTH.get(usageKey(env, username));
+  const n = parseInt(v || "0", 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+async function accountState(env, session) {
+  if (!authEnabled(env)) return { authRequired: false, user: null, admin: false, unlimited: true, remaining: null, limit: null };
+  if (!session) return { authRequired: true, user: null, admin: false, unlimited: false, remaining: 0, limit: freeLimit(env) };
+  if (session.admin) return { authRequired: true, user: session.username, admin: true, unlimited: true, remaining: null, limit: null };
+  const used = await getUsed(env, session.username);
+  const limit = freeLimit(env);
+  return { authRequired: true, user: session.username, admin: false, unlimited: false, remaining: Math.max(0, limit - used), limit, period: env.FREE_PERIOD === "daily" ? "daily" : "total" };
+}
+
+async function failedTooMuch(env, username) {
+  const n = parseInt((await env.AUTH.get("fail:" + normUser(username))) || "0", 10);
+  return n >= MAX_FAILS;
+}
+async function noteFail(env, username) {
+  const k = "fail:" + normUser(username);
+  const n = parseInt((await env.AUTH.get(k)) || "0", 10) + 1;
+  await env.AUTH.put(k, String(n), { expirationTtl: FAIL_WINDOW_S });
+}
+
+async function handleAuth(request, env, path) {
+  if (!authEnabled(env)) return json({ error: "نظام الحسابات غير مفعّل على الخادم.", code: "auth_disabled" }, 404);
+  if (!env.AUTH) return json({ error: "AUTH KV غير مربوط في wrangler.jsonc.", code: "no_kv" }, 500);
+
+  if (path === "/api/me") {
+    return json(await accountState(env, await readSession(request, env)), 200, { "Cache-Control": "no-store" });
+  }
+  if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+  if (path === "/api/logout") return json({ ok: true }, 200, { "Set-Cookie": sessionCookie("", 0) });
+
+  let body;
+  try { body = await request.json(); } catch { return json({ error: "طلب JSON غير صالح." }, 400); }
+  const username = String(body.username || "").trim();
+  const password = String(body.password || "");
+  if (!validUsername(username)) return json({ error: "اسم المستخدم لازم يكون من 3 لـ 24 حرف (حروف وأرقام و _ . - فقط).", code: "bad_username" }, 400);
+  if (password.length < 6 || password.length > 128) return json({ error: "كلمة السر لازم تكون من 6 لـ 128 حرف.", code: "bad_password" }, 400);
+
+  const login = async (name) => {
+    const state = await accountState(env, { username: name, admin: isAdminName(env, name) });
+    return json(state, 200, { "Set-Cookie": sessionCookie(await makeToken(env, name), SESSION_TTL_S), "Cache-Control": "no-store" });
+  };
+
+  if (path === "/api/register") {
+    if (isAdminName(env, username)) return json({ error: "اسم المستخدم ده محجوز.", code: "taken" }, 409);
+    const key = "user:" + normUser(username);
+    if (await env.AUTH.get(key)) return json({ error: "اسم المستخدم ده مستخدم قبل كده.", code: "taken" }, 409);
+    const salt = b64u.enc(crypto.getRandomValues(new Uint8Array(16)));
+    const hash = await hashPassword(password, salt);
+    await env.AUTH.put(key, JSON.stringify({ name: username, salt, hash, iter: PBKDF2_ITER, created: Date.now() }));
+    return login(username);
+  }
+
+  if (path === "/api/login") {
+    if (await failedTooMuch(env, username)) return json({ error: "محاولات كتير غلط. جرّب بعد 15 دقيقة.", code: "locked" }, 429);
+    if (isAdminName(env, username)) {
+      if (env.ADMIN_PASSWORD && safeEqual(password, env.ADMIN_PASSWORD)) return login(env.ADMIN_USERNAME);
+      await noteFail(env, username);
+      return json({ error: "اسم المستخدم أو كلمة السر غلط.", code: "bad_credentials" }, 401);
+    }
+    const raw = await env.AUTH.get("user:" + normUser(username));
+    const rec = raw ? JSON.parse(raw) : null;
+    // Always run one PBKDF2 so response time does not reveal whether the user exists.
+    const got = await hashPassword(password, rec ? rec.salt : b64u.enc(new Uint8Array(16)), rec ? rec.iter : PBKDF2_ITER);
+    if (!rec || !safeEqual(got, rec.hash)) {
+      await noteFail(env, username);
+      return json({ error: "اسم المستخدم أو كلمة السر غلط.", code: "bad_credentials" }, 401);
+    }
+    return login(rec.name);
+  }
+  return json({ error: "Not found" }, 404);
+}
+
+// Called before every model request. Returns a Response when blocked, otherwise null.
+// A normal account is charged one message here; the admin account is never counted.
+async function gateRequest(request, env) {
+  if (!authEnabled(env)) return null;
+  if (!env.AUTH) return json({ error: "AUTH KV غير مربوط على الخادم.", code: "no_kv" }, 500);
+  const session = await readSession(request, env);
+  if (!session) return json({ error: "سجّل دخولك الأول عشان تستخدم NOVA AI.", code: "auth_required" }, 401);
+  if (session.admin) return null;
+  const limit = freeLimit(env);
+  const used = await getUsed(env, session.username);
+  if (used >= limit) {
+    const daily = env.FREE_PERIOD === "daily";
+    return json({ error: daily ? `خلصت رسايلك النهارده (${limit}). ارجع بكرة.` : `خلصت الرسايل المسموحة لحسابك (${limit}). كلّم صاحب الموقع لحساب بدون حدود.`, code: "limit_reached", limit, remaining: 0 }, 429);
+  }
+  await env.AUTH.put(usageKey(env, session.username), String(used + 1), env.FREE_PERIOD === "daily" ? { expirationTtl: 60 * 60 * 48 } : undefined);
+  return null;
+}
+
 /* ---------------- routing ---------------- */
 
 export default {
@@ -687,15 +851,21 @@ export default {
         capabilities: { think: p.models.some((m) => !!modelCaps(p.id, m).reasoning), search: p.searchModels.length > 0, vision: p.visionModels.length > 0 },
       }));
       return json({
-        ok: true, version: "0.5", primaryProvider: "groq", fallbackOrder: ["gemini", "openrouter"],
+        ok: true, version: "0.6", auth: authEnabled(env), primaryProvider: "groq", fallbackOrder: ["gemini", "openrouter"],
         providers, maxImagesPerRequest: MAX_IMAGES,
         searchProvider: "Groq Browser Search (Groq keys required); other providers fall back to a no-search answer with a notice",
         note: "Provider/model availability and free-tier limits depend on each provider account.",
       });
     }
 
+    if (["/api/me", "/api/login", "/api/register", "/api/logout"].includes(url.pathname)) {
+      return handleAuth(request, env, url.pathname);
+    }
+
     if (url.pathname === "/api/chat" || url.pathname === "/api/generate-files") {
       if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+      const blocked = await gateRequest(request, env);
+      if (blocked) return blocked;
       return url.pathname === "/api/chat" ? handleChat(request, env) : handleGenerateFiles(request, env);
     }
 

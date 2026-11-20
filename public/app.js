@@ -1442,6 +1442,7 @@ async function ask(chat) {
   try {
     if (kind === 'chat') await runChatRequest(chat, run, last);
     else await runFilesRequest(chat, run, last);
+    refreshAccount();
   } catch (e) {
     console.error('[NOVA] unexpected run error', e);
     failRun(chat, run, 'حدث خطأ غير متوقع في التطبيق. حاول مرة أخرى.');
@@ -1511,6 +1512,7 @@ async function tryStream(chat, run, payload) {
     if (!res.ok || !ct.includes('text/event-stream') || !res.body) {
       let data = null;
       try { data = await res.json(); } catch { /* not json */ }
+      if (res.status === 401) onAuthRequired();
       return { retry: [502, 503, 504, 408].includes(res.status), error: (data && data.error) || `خطأ من الخادم (${res.status}).` };
     }
     const reader = res.body.getReader();
@@ -1569,6 +1571,7 @@ async function runFilesRequest(chat, run, last) {
       try { body = await res.json(); } catch { body = null; }
       rememberLimits(body && body.model, body && body.rateLimits);
       if (res.ok && body && Array.isArray(body.files)) { data = body; break; }
+      if (res.status === 401) onAuthRequired();
       lastError = (body && body.error) || `تعذر توليد الملفات (${res.status}).`;
       if (![502, 503, 504].includes(res.status) || (body && ['truncated', 'bad_json', 'no_keys'].includes(body.code))) break;
     } catch (e) {
@@ -1811,6 +1814,71 @@ if ('serviceWorker' in navigator) {
   });
 }
 
+
+/* ---------- accounts (username/password + message quota) ---------- */
+
+const authEl = {
+  gate: $('#authGate'), form: $('#authForm'), tabs: $('#authTabs'), user: $('#authUser'), pass: $('#authPass'),
+  err: $('#authErr'), submit: $('#authSubmit'), box: $('#userBox'), name: $('#userName'), quota: $('#userQuota'), logout: $('#logoutBtn'),
+};
+let account = { authRequired: false, user: null, unlimited: true, remaining: null, limit: null };
+let authMode = 'login';
+
+function renderAccount() {
+  const needLogin = account.authRequired && !account.user;
+  authEl.gate.hidden = !needLogin;
+  authEl.box.hidden = !(account.authRequired && account.user);
+  if (account.user) {
+    authEl.name.textContent = account.user;
+    authEl.quota.textContent = account.unlimited ? 'بدون حدود ∞' : `متبقي ${account.remaining} من ${account.limit}`;
+    authEl.box.classList.toggle('low', !account.unlimited && account.remaining <= 1);
+  }
+  if (needLogin) setTimeout(() => authEl.user.focus(), 50);
+}
+
+async function refreshAccount() {
+  try {
+    const res = await fetch('/api/me', { cache: 'no-store' });
+    if (res.ok) { account = await res.json(); renderAccount(); }
+  } catch { /* offline: keep last known state */ }
+}
+
+function setAuthMode(mode) {
+  authMode = mode;
+  authEl.tabs.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
+  authEl.submit.textContent = mode === 'login' ? 'دخول' : 'إنشاء حساب';
+  authEl.pass.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
+  authEl.err.hidden = true;
+}
+authEl.tabs.addEventListener('click', (e) => { const b = e.target.closest('button[data-mode]'); if (b) setAuthMode(b.dataset.mode); });
+
+authEl.form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  authEl.err.hidden = true;
+  authEl.submit.disabled = true;
+  try {
+    const res = await fetch(authMode === 'login' ? '/api/login' : '/api/register', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: authEl.user.value.trim(), password: authEl.pass.value }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { authEl.err.textContent = data.error || `تعذر الدخول (${res.status}).`; authEl.err.hidden = false; return; }
+    account = data;
+    authEl.pass.value = '';
+    renderAccount();
+  } catch {
+    authEl.err.textContent = 'تعذر الاتصال بالخادم.'; authEl.err.hidden = false;
+  } finally { authEl.submit.disabled = false; }
+});
+
+authEl.logout.onclick = async () => {
+  try { await fetch('/api/logout', { method: 'POST' }); } catch { /* ignore */ }
+  await refreshAccount();
+};
+
+// Called when the server answers 401 (session expired / not logged in).
+function onAuthRequired() { account = { ...account, user: null, authRequired: true }; renderAccount(); }
+
 /* ---------- boot ---------- */
 
 if (!current()) activeId = null;
@@ -1821,5 +1889,6 @@ renderMessages();
 renderAttachments();
 restoreDraft();
 loadProjectFor(current());
+refreshAccount();
 
 })();

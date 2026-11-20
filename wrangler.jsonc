@@ -6,5 +6,17 @@
     "directory": "./public",
     "binding": "ASSETS",
     "run_worker_first": ["/api/*"]
+  },
+  // KV بدون id: wrangler بيعمله لوحده أول مرة تنشر (npx wrangler deploy)
+  "kv_namespaces": [
+    { "binding": "AUTH" }
+  ],
+  "vars": {
+    "FREE_LIMIT": "4",
+    "FREE_PERIOD": "total",
+    // مؤقت: غيّرهم بعدين وبالأفضل انقلهم لـ Secrets وامسح الأسطر دي. ما ترفعش الملف ده على GitHub عام.
+    "ADMIN_USERNAME": "nova_owner",
+    "ADMIN_PASSWORD": "rv2HRKlCQ8JYsa",
+    "SESSION_SECRET": "o0D6NqlpcsN70Ov72Uww54POkzn8TNMS6oEmagkFgeNImmaD-meByQ"
   }
 }
