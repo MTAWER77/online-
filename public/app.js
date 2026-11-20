@@ -4,6 +4,11 @@
 const $ = (s) => document.querySelector(s);
 const R = window.NovaRender;
 const G = window.NovaGodot;
+const T = window.NovaTasks;
+const C = window.NovaContext;
+const P = window.NovaPdf;
+const MAX_PDF_SIZE = 15 * 1024 * 1024;
+const resumeData = new Map(); // chatId -> { state, files, findings } for «استكمال المهام»
 
 const el = {
   sidebar: $('#sidebar'), scrim: $('#scrim'), list: $('#chatList'), msgs: $('#messages'),
@@ -11,7 +16,7 @@ const el = {
   toast: $('#toast'), install: $('#installBtn'), menu: $('#menuBtn'), newChat: $('#newChat'),
   settings: $('#settings'), settingsBtn: $('#settingsBtn'),
   attachBtn: $('#attachBtn'), attachMenu: $('#attachMenu'),
-  fileInput: $('#fileInput'), imageInput: $('#imageInput'), zipInput: $('#zipInput'), folderInput: $('#folderInput'),
+  fileInput: $('#fileInput'), imageInput: $('#imageInput'), cameraInput: $('#cameraInput'), zipInput: $('#zipInput'), folderInput: $('#folderInput'),
   attachmentTray: $('#attachmentTray'), modeBar: $('#modeBar'),
   thinkToggle: $('#thinkToggle'), searchToggle: $('#searchToggle'), codeFixToggle: $('#codeFixToggle'),
 };
@@ -781,6 +786,33 @@ function imageToDataUrl(file) {
   });
 }
 
+async function handlePdf(file) {
+  if (!P) { toast('قارئ PDF غير متاح.'); return; }
+  if (file.size > MAX_PDF_SIZE) { toast('حجم PDF أكبر من 15MB: ' + file.name); return; }
+  toast('جارٍ قراءة ' + file.name + '…');
+  let r;
+  try { r = await P.extract(file, { maxImages: Math.max(0, MAX_IMAGES - pendingFiles.filter((x) => x.kind === 'image').length) }); }
+  catch (e) {
+    const n = e && e.name;
+    toast(n === 'PasswordException' ? 'ملف PDF محمي بكلمة سر: ' + file.name : n === 'InvalidPDFException' ? 'ملف PDF تالف أو غير صالح: ' + file.name : 'تعذر قراءة PDF: ' + file.name);
+    return;
+  }
+  const hasText = r.text.replace(/=== صفحة \d+ ===|\[لا يوجد[^\]]*\]/g, '').trim().length > 0;
+  if (!hasText && !r.images.length) { toast('لم أستطع استخراج أي محتوى من ' + file.name); return; }
+  pendingFiles.push({ id: 'txt_' + uid(), name: file.name, size: file.size, type: 'application/pdf', kind: 'text', pdf: true, content: r.text, truncated: r.truncated });
+  for (const im of r.images) {
+    if (pendingFiles.filter((x) => x.kind === 'image').length >= MAX_IMAGES) break;
+    const id = 'img_' + uid();
+    imageDataStore.set(id, im.dataUrl);
+    pendingFiles.push({ id, name: `${file.name} (صفحة ${im.page})`, size: Math.round(im.dataUrl.length * 0.75), type: 'image/jpeg', kind: 'image' });
+  }
+  toast(`قُرئ ${file.name}: ${r.readPages}/${r.pageCount} صفحة` + (r.images.length ? ` + ${r.images.length} صفحة كصورة` : '') + (r.notes.length ? ' — ' + r.notes.join(' ') : ''));
+  renderAttachments();
+}
+
+// PDFs are sent page-selected (pages relevant to the question), other text files whole.
+function fileBody(file, question) { return file.pdf && P ? P.selectPages(file.content, question, 24000) : file.content; }
+
 async function handleFiles(fileList, kind) {
   const files = Array.from(fileList || []);
   const textUpdates = [];
@@ -801,8 +833,8 @@ async function handleFiles(fileList, kind) {
       continue;
     }
     const ext = getExtension(file.name);
-    if (ext !== 'zip' && file.size > MAX_FILE_SIZE) { toast('حجم الملف أكبر من 1MB: ' + file.name); continue; }
-    if (ext === 'pdf') { toast('قراءة PDF غير مفعّلة حاليًا.'); continue; }
+    if (ext !== 'zip' && ext !== 'pdf' && file.size > MAX_FILE_SIZE) { toast('حجم الملف أكبر من 1MB: ' + file.name); continue; }
+    if (ext === 'pdf') { await handlePdf(file); continue; }
     if (ext === 'zip') { await handleProjectUpload('zip', [file]); continue; }
     if (!SUPPORTED_EXTENSIONS.includes(ext)) { toast('نوع الملف غير مدعوم: ' + file.name); continue; }
     try {
@@ -864,6 +896,7 @@ if (el.attachBtn && el.attachMenu) {
     const kind = option.dataset.attach;
     if (kind === 'file') el.fileInput?.click();
     else if (kind === 'image') el.imageInput?.click();
+    else if (kind === 'camera') el.cameraInput?.click();
     else if (kind === 'zip') el.zipInput?.click();
     else if (kind === 'folder') el.folderInput?.click();
   });
@@ -876,6 +909,7 @@ if (el.attachBtn && el.attachMenu) {
   }
 }
 el.fileInput?.addEventListener('change', async () => { await handleFiles(el.fileInput.files, 'file'); el.fileInput.value = ''; });
+el.cameraInput?.addEventListener('change', async () => { await handleFiles(el.cameraInput.files, 'image'); el.cameraInput.value = ''; });
 el.imageInput?.addEventListener('change', async () => { await handleFiles(el.imageInput.files, 'image'); el.imageInput.value = ''; });
 el.zipInput?.addEventListener('change', async () => { await handleProjectUpload('zip', el.zipInput.files); el.zipInput.value = ''; });
 el.folderInput?.addEventListener('change', async () => { await handleProjectUpload('folder', el.folderInput.files); el.folderInput.value = ''; });
@@ -924,7 +958,7 @@ function sourceFilesFor(chat) {
   if (project) for (const f of project.files.values()) map.set(f.path, { name: f.path, kind: 'text', content: f.text });
   for (const m of chat.messages) {
     if (m.role === 'user' && Array.isArray(m.attachments)) {
-      for (const a of m.attachments) if (a.kind === 'text' && a.content && !a.trimmed) map.set(a.name, { name: a.name, kind: 'text', content: a.content });
+      for (const a of m.attachments) if (a.kind === 'text' && a.content && !a.trimmed && !a.pdf) map.set(a.name, { name: a.name, kind: 'text', content: a.content });
     }
   }
   return [...map.values()];
@@ -993,6 +1027,7 @@ function rowAI(m, idx, isLast, sourceFiles) {
   acts.innerHTML =
     '<button type="button" class="act" data-act="copy">' + svg(IC.copy, 15) + '<span>نسخ الرد</span></button>' +
     (isLast && cut ? '<button type="button" class="act accent" data-act="continue">' + svg(IC.play, 15) + '<span>متابعة</span></button>' : '') +
+    (isLast && T && T.resumable(m.taskState) ? '<button type="button" class="act accent" data-act="resume">' + svg(IC.play, 15) + '<span>استكمال المهام</span></button>' : '') +
     (isLast ? '<button type="button" class="act" data-act="regen">' + svg(IC.refresh, 15) + '<span>إعادة التوليد</span></button>' : '');
   body.append(acts);
   r.append(body);
@@ -1105,6 +1140,7 @@ function statusLabel(run) {
     case 'searching': return run.modes.think ? 'NOVA يبحث ويحلل المصادر…' : 'NOVA يبحث في الويب…';
     case 'writing': return 'NOVA يكتب…';
     case 'retrying': return `انقطع الاتصال… إعادة المحاولة (${run.attempt}/${MAX_ATTEMPTS})`;
+    case 'tasks': { const c = T.counts(run.tasks); const cur = run.tasks.tasks.find((t) => t.status === 'running'); return cur ? `المهمة ${c.done + 1}/${c.total}: ${cur.title.slice(0, 40)}` : `تجهيز المهام (${c.done}/${c.total})`; }
     case 'files': return run.mode === 'fix' ? 'NOVA يحلل الكود ويجهّز الإصلاح…' : 'NOVA يجهّز الملفات…';
     default:
       if (run.projectFiles) return `NOVA يقرأ ${run.projectFiles} ملف من المشروع…`;
@@ -1118,12 +1154,12 @@ function attachRunNode(run) {
     '<div class="ai-body"><div class="think run-status"><i class="orb"></i><span class="lbl"></span><em class="sec"></em></div>' +
     '<details class="reason" hidden><summary><span class="r-ico"></span><span class="r-title"></span></summary><div class="reason-body" dir="auto"></div></details>' +
     '<div class="srcs-host"></div>' +
-    '<div class="run-notices"></div><div class="md"><div class="md-stable"></div><div class="md-tail"></div></div></div>';
+    '<div class="run-notices"></div><div class="task-panel" hidden></div><div class="md"><div class="md-stable"></div><div class="md-tail"></div></div></div>';
   el.msgs.append(row);
   run.node = {
     row, status: row.querySelector('.run-status'), label: row.querySelector('.run-status .lbl'), sec: row.querySelector('.run-status .sec'),
     reason: row.querySelector('.reason'), reasonTitle: row.querySelector('.r-title'), reasonBody: row.querySelector('.reason-body'), srcs: row.querySelector('.srcs-host'),
-    notices: row.querySelector('.run-notices'), stable: row.querySelector('.md-stable'), tail: row.querySelector('.md-tail'),
+    notices: row.querySelector('.run-notices'), taskPanel: row.querySelector('.task-panel'), stable: row.querySelector('.md-stable'), tail: row.querySelector('.md-tail'),
   };
   run.stableLen = 0;
   clearInterval(run.timer);
@@ -1198,6 +1234,20 @@ function buildReason(m) {
   return d;
 }
 
+const TASK_ICON = { done: '✅', failed: '❌', running: '⏳', pending: '○' };
+function paintTasks(run) {
+  const p = run.node && run.node.taskPanel;
+  if (!p) return;
+  if (!run.tasks) { p.hidden = true; return; }
+  const c = T.counts(run.tasks);
+  p.hidden = false;
+  p.replaceChildren();
+  const bar = mk('div', 'task-bar'); const fill = mk('i', ''); fill.style.width = Math.round((c.done / c.total) * 100) + '%'; bar.append(fill);
+  const head = mk('div', 'task-head'); head.textContent = `التقدم: ${c.done}/${c.total}` + (c.failed ? ` — فشلت ${c.failed}` : '');
+  p.append(head, bar);
+  run.tasks.tasks.forEach((t, i) => { const d = mk('div', 'task-item ' + t.status); d.textContent = `${TASK_ICON[t.status] || '•'} ${i + 1}. ${t.title}`; p.append(d); });
+}
+
 function paintRun(run) {
   run.raf = 0;
   const n = run.node;
@@ -1205,6 +1255,7 @@ function paintRun(run) {
   n.label.textContent = statusLabel(run);
   n.status.classList.toggle('writing', !!run.text);
   paintExtras(run);
+  paintTasks(run);
   if (!run.text) return;
   const stick = nearBottom();
   const b = stableBoundary(run.text);
@@ -1307,6 +1358,7 @@ function detectIntent(text, chat) {
 function fileOutline(a) {
   const text = a.content || '';
   if (!text) return '';
+  if (a.pdf) return 'PDF, ' + (text.match(/^=== صفحة \d+ ===$/gm) || []).length + ' pages (page-selected excerpts are sent per question)';
   if (/\.gd$/i.test(a.name)) {
     const s = G.parseScript(text);
     return [s.extends && 'extends ' + s.extends, s.className && 'class ' + s.className, s.funcs.length && 'funcs: ' + s.funcs.slice(0, 12).map((f) => f.name).join(', ')].filter(Boolean).join('; ');
@@ -1330,7 +1382,11 @@ function buildContextNote(chat) {
   if (lastA && (lastA.incomplete || lastA.finish === 'MAX_TOKENS')) lines.push('Your previous answer was cut off before it finished. If the user says continue, resume exactly where it stopped without repeating.');
   const nUser = chat.messages.filter((m) => m.role === 'user').length;
   lines.push(`This is user turn #${nUser} of the conversation.`);
-  return lines.join('\n').slice(0, 3800);
+  const h = selectHistory(chat);
+  if (h.mode === 'back' || h.mode === 'continue') lines.push('The latest user message refers back to earlier work (e.g. "continue", "edit that", "same system", "fix the previous error"). Resolve the reference from the recent messages and the summary below; do not ask what it refers to if it can be inferred.');
+  else if (h.mode === 'new') lines.push('The latest user message looks like a NEW topic. Do not mix in earlier topics or files unless the user asks.');
+  const head = lines.join('\n').slice(0, 3800);
+  return h.summary ? head + '\n\n' + h.summary : head;
 }
 
 function fileStub(a) {
@@ -1352,9 +1408,19 @@ function fitMessages(msgs) {
   return msgs;
 }
 
+// Context Selection: recent turns + relevant older turns + pinned requirements (not just the last N messages).
+function selectHistory(chat, all) {
+  all = all || chat.messages.filter((m) => m.role === 'user' || (m.role === 'assistant' && m.content));
+  if (!C) return { slice: all.slice(-MAX_CONTEXT), summary: '', mode: 'followup', dropped: 0 };
+  const sel = C.select(all.map((m) => ({ id: m.id, role: m.role, content: m.content || '', files: (m.files || []).map((f) => f.name) })), { budget: 30000, maxMessages: 22 });
+  const byId = new Map(all.map((m) => [m.id, m]));
+  const slice = sel.messages.map((x) => { const o = byId.get(x.id); return x.shrunk ? { ...o, content: x.content } : o; });
+  return { slice, summary: sel.summary, mode: sel.mode, dropped: sel.dropped };
+}
+
 function buildApiMessages(chat) {
   const all = chat.messages.filter((m) => m.role === 'user' || (m.role === 'assistant' && m.content));
-  const slice = all.slice(-MAX_CONTEXT);
+  const slice = selectHistory(chat, all).slice;
   const freshIds = new Set(slice.filter((m) => m.role === 'user').slice(-FRESH_USER_TURNS).map((m) => m.id));
   let imageBudget = MAX_IMAGES;
   const out = slice.map((m) => {
@@ -1363,7 +1429,7 @@ function buildApiMessages(chat) {
     let text = m.content || '';
     for (const file of m.attachments) {
       if (file.kind !== 'text') continue;
-      if (fresh && file.content && !file.inProject) text += '\n\n--- بداية الملف: ' + file.name + ' ---\n```text\n' + file.content + '\n```\n--- نهاية الملف: ' + file.name + ' ---' + (file.truncated ? '\n(الملف مقتطع لأنه طويل)' : '');
+      if (fresh && file.content && !file.inProject) text += '\n\n--- بداية الملف: ' + file.name + ' ---\n```text\n' + fileBody(file, m.content) + '\n```\n--- نهاية الملف: ' + file.name + ' ---' + (file.truncated ? '\n(الملف مقتطع لأنه طويل)' : '');
       else if (file.inProject) text += `\n\n[الملف ${file.name} أُضيف إلى سياق المشروع]`;
       else text += '\n\n' + fileStub(file);
     }
@@ -1382,8 +1448,8 @@ function buildApiMessages(chat) {
   return fitMessages(out);
 }
 
-function projectPayload(chat, last, budget) {
-  const p = projects.get(chat.id);
+function projectPayload(chat, last, budget, override) {
+  const p = override || projects.get(chat.id);
   if (!p) return { text: '', included: [] };
   const prev = [...chat.messages].reverse().find((m) => m.role === 'assistant');
   const query = [last.content || '', ...(last.attachments || []).map((a) => a.name), prev ? String(prev.content || '').slice(0, 800) : ''].join('\n');
@@ -1508,7 +1574,10 @@ async function ask(chat) {
   if (!last || last.role !== 'user') return;
   chat.lastError = null;
   const runModes = { think: !!last.modes?.think, search: !!last.modes?.search, fix: !!last.modes?.fix };
-  const kind = runModes.fix ? 'fix' : (wantsFiles(last.content) ? 'files' : 'chat');
+  const resume = resumeData.get(chat.id);
+  resumeData.delete(chat.id);
+  let kind = runModes.fix ? 'fix' : (wantsFiles(last.content) ? 'files' : 'chat');
+  const useTasks = !!resume || (kind !== 'chat' && T && T.plan(last.content).length > 0);
   const run = {
     id: uid(), chatId: chat.id, userMsgId: last.id, kind, mode: kind, modes: runModes, ctrl: null, text: '', status: 'connecting',
     notices: [], stopped: false, attempt: 1, node: null, raf: 0, stableLen: 0, t0: Date.now(), firstTextAt: 0, sawThinking: false, sawSearching: false, timer: 0,
@@ -1523,6 +1592,7 @@ async function ask(chat) {
 
   try {
     if (kind === 'chat') await runChatRequest(chat, run, last);
+    else if (useTasks) await runTaskFlow(chat, run, last, resume);
     else await runFilesRequest(chat, run, last);
     refreshAccount();
   } catch (e) {
@@ -1531,8 +1601,8 @@ async function ask(chat) {
   }
 }
 
-function buildPayload(chat, run, last, extra = {}) {
-  const proj = projectPayload(chat, last, run.kind === 'fix' ? FIX_PROJECT_BUDGET : CHAT_PROJECT_BUDGET);
+function buildPayload(chat, run, last, extra = {}, override) {
+  const proj = projectPayload(chat, last, run.kind === 'fix' ? FIX_PROJECT_BUDGET : CHAT_PROJECT_BUDGET, override);
   run.projectFiles = proj.included.length;
   return {
     messages: buildApiMessages(chat),
@@ -1652,30 +1722,11 @@ async function runFilesRequest(chat, run, last) {
   run.status = 'files';
   if (run.node) paintRun(run);
   const payload = buildPayload(chat, run, last, { mode: run.kind === 'fix' ? 'fix' : 'files' });
-  let data = null, lastError = 'تعذر توليد الملفات.';
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    if (isStale(run) || run.stopped) return finishStopped(chat, run);
-    const ctrl = new AbortController();
-    run.ctrl = ctrl;
-    let timedOut = false;
-    const timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, FILES_TIMEOUT_MS);
-    try {
-      const res = await fetch('/api/generate-files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctrl.signal, body: JSON.stringify(payload) });
-      let body;
-      try { body = await res.json(); } catch { body = null; }
-      rememberLimits(body && body.model, body && body.rateLimits);
-      if (res.ok && body && Array.isArray(body.files)) { data = body; break; }
-      lastError = (body && body.error) || `تعذر توليد الملفات (${res.status}).`;
-      if (![502, 503, 504].includes(res.status) || (body && ['truncated', 'bad_json', 'no_keys'].includes(body.code))) break;
-    } catch (e) {
-      if (run.stopped) return finishStopped(chat, run);
-      lastError = timedOut ? 'استغرق توليد الملفات وقتًا طويلًا. جرّب طلبًا أصغر.' : !navigator.onLine ? 'لا يوجد اتصال بالإنترنت.' : 'انقطع الاتصال أثناء توليد الملفات.';
-      if (!timedOut && navigator.onLine) { run.status = 'retrying'; run.attempt = attempt + 1; paintRun(run); await sleep(1200); continue; }
-      break;
-    } finally { clearTimeout(timer); }
-  }
+  const rf = await requestFiles(run, payload);
+  if (rf.stopped) return finishStopped(chat, run);
   if (isStale(run)) return;
-  if (!data) return failRun(chat, run, lastError, { keepPartial: false });
+  const data = rf.data;
+  if (!data) return failRun(chat, run, rf.error, { keepPartial: false });
 
   const fix = run.kind === 'fix';
   const sources = sourceFilesFor(chat);
@@ -1698,6 +1749,106 @@ async function runFilesRequest(chat, run, last) {
   run.text = message;
   commitAssistant(chat, run, { files, findings: data.findings || [], fixMode: fix, tested: false, finish: 'stop' });
   endRun(chat, run);
+}
+
+async function requestFiles(run, payload) {
+  let lastError = 'تعذر توليد الملفات.';
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    if (isStale(run) || run.stopped) return { stopped: true };
+    const ctrl = new AbortController();
+    run.ctrl = ctrl;
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, FILES_TIMEOUT_MS);
+    try {
+      const res = await fetch('/api/generate-files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctrl.signal, body: JSON.stringify(payload) });
+      let body;
+      try { body = await res.json(); } catch { body = null; }
+      rememberLimits(body && body.model, body && body.rateLimits);
+      if (res.ok && body && Array.isArray(body.files)) return { data: body };
+      lastError = (body && body.error) || `تعذر توليد الملفات (${res.status}).`;
+      if (![502, 503, 504].includes(res.status) || (body && ['truncated', 'bad_json', 'no_keys'].includes(body.code))) break;
+    } catch (e) {
+      if (run.stopped) return { stopped: true };
+      lastError = timedOut ? 'استغرق توليد الملفات وقتًا طويلًا. جرّب طلبًا أصغر.' : !navigator.onLine ? 'لا يوجد اتصال بالإنترنت.' : 'انقطع الاتصال أثناء توليد الملفات.';
+      if (!timedOut && navigator.onLine) { run.status = 'retrying'; run.attempt = attempt + 1; paintRun(run); await sleep(1200); continue; }
+      break;
+    } finally { clearTimeout(timer); }
+  }
+  return { error: lastError };
+}
+
+/* ---------- Task Manager: long request -> small tasks, one API call each ---------- */
+
+function taskPrompt(state, task, i) {
+  return `[المهمة ${i + 1} من ${state.tasks.length}] نفّذ هذه المهمة فقط، وأعد الملفات الكاملة التي تغيّرت بسببها فقط:\n${task.prompt}\n\n` +
+    `الطلب الأصلي الكامل (للسياق فقط، لا تنفّذ منه إلا المهمة أعلاه. المهام السابقة نُفذت بالفعل وملفاتها المعدّلة موجودة في سياق المشروع):\n${state.original}`;
+}
+
+async function runTaskFlow(chat, run, last, resume) {
+  const fix = run.kind === 'fix';
+  const sources = sourceFilesFor(chat);
+  const base = projects.get(chat.id);
+  const overlay = base ? G.deserialize(G.serialize(base))
+    : G.deserialize({ name: 'chat', files: sources.map((f) => ({ path: f.name, size: f.content.length, text: f.content })) });
+  const state = resume ? resume.state : T.createState(T.plan(last.content), last.content);
+  const results = new Map(resume ? resume.files.map((f) => [f.name, f.content]) : []);
+  const findings = resume ? resume.findings.slice() : [];
+  if (results.size) G.mergeFiles(overlay, [...results].map(([name, content]) => ({ name, content })));
+  run.tasks = state; run.status = 'tasks';
+  if (run.node) paintRun(run);
+
+  const exec = async (task, i) => {
+    const t = { content: taskPrompt(state, task, i), attachments: last.attachments };
+    const payload = buildPayload(chat, run, t, { mode: fix ? 'fix' : 'files' }, overlay);
+    const msgs = payload.messages;
+    for (let k = msgs.length - 1; k >= 0; k--) if (msgs[k].role === 'user') { msgs[k] = { role: 'user', content: t.content }; break; }
+    const rf = await requestFiles(run, payload);
+    if (rf.stopped) throw new Error('stopped');
+    if (!rf.data) throw new Error(rf.error);
+    const files = rf.data.files.filter((f) => f && typeof f.name === 'string' && typeof f.content === 'string').slice(0, MAX_GENERATED_FILES)
+      .map((f) => ({ name: safeFileName(normName(f.name)), content: f.content }));
+    const bad = [];
+    for (const f of files) G.sanityCheck(f.name, f.content).filter((w) => w.sev === 'error').forEach((w) => bad.push(`${f.name}: ${w.msg}`));
+    if (bad.length) throw new Error('فشل التحقق: ' + bad.slice(0, 3).join(' | '));
+    G.mergeFiles(overlay, files);
+    files.forEach((f) => results.set(f.name, f.content));
+    (rf.data.findings || []).forEach((x) => findings.push(x));
+    return { message: rf.data.message || '', files: files.map((f) => f.name) };
+  };
+  const check = () => {
+    const problems = [];
+    for (const [name, content] of results) {
+      G.sanityCheck(name, content).filter((w) => w.sev === 'error').forEach((w) => problems.push(`${name}: ${w.msg}`));
+      if (/(?:rest of (?:the )?code|\.\.\. ?\(?(?:existing|rest))/i.test(content)) problems.push(`${name}: يحتوي على مقطع ناقص (placeholder).`);
+    }
+    return problems;
+  };
+  await T.run(state, { exec, check, isCancelled: () => run.stopped || isStale(run), onUpdate: () => { if (run.node) schedulePaint(run); } });
+  if (isStale(run)) return;
+
+  const outFiles = [];
+  for (const [name, content] of results) {
+    const o = findOriginalFile(sources, name);
+    if (fix && o && o.content === content) continue;
+    const f = { name, content, warnings: G.sanityCheck(name, content) };
+    if (fix && !o) f.warnings.push({ sev: 'warning', file: name, line: 0, msg: 'هذا الملف غير موجود بين الملفات المرفوعة، فلن تظهر له مقارنة. راجعه بعناية.' });
+    outFiles.push(f);
+  }
+  const done = state.status === 'done';
+  run.text = T.summary(state) + (done ? '' : '\n\nالملفات الجاهزة من المهام المكتملة تظهر أدناه، ولم يُختبر أي شيء داخل بيئة تشغيل.');
+  const extra = { files: outFiles, findings, fixMode: fix, tested: false, finish: 'stop', taskState: state };
+  if (!done) { extra.incomplete = true; extra.stopped = state.status === 'cancelled'; extra.error = state.tasks.find((t) => t.status === 'failed')?.error || ''; }
+  commitAssistant(chat, run, extra);
+  endRun(chat, run);
+}
+
+function resumeTasks(chat) {
+  const last = chat.messages[chat.messages.length - 1];
+  if (!last || last.role !== 'assistant' || !T.resumable(last.taskState) || isBusy(chat)) return;
+  resumeData.set(chat.id, { state: T.resetForResume(JSON.parse(JSON.stringify(last.taskState))), files: (last.files || []).map((f) => ({ name: f.name, content: f.content })), findings: last.findings || [] });
+  chat.messages.pop();
+  save(); renderMessages();
+  ask(chat);
 }
 
 function stopRun(chat) {
@@ -1752,6 +1903,8 @@ el.msgs.addEventListener('click', async (e) => {
     save();
     renderMessages();
     ask(chat);
+  } else if (act === 'resume') {
+    const ch = current(); if (ch) resumeTasks(ch);
   } else if (act === 'continue') {
     if (isBusy(chat)) return;
     const lastUser = [...chat.messages].reverse().find((m) => m.role === 'user');

@@ -26,7 +26,7 @@ const OPENROUTER_API = "https://openrouter.ai/api/v1/chat/completions";
 
 const MAX_MESSAGES = 30;
 const MAX_CHARS = 70000;
-const MAX_CONTEXT_NOTE_CHARS = 4000;
+const MAX_CONTEXT_NOTE_CHARS = 8000;
 const MAX_PROJECT_CHARS = 32000;
 const MAX_IMAGES = 3;
 const MAX_IMAGE_DATA_CHARS = 1800000;

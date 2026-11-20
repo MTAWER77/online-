@@ -1,6 +1,6 @@
 const http = require('http'), fs = require('fs'), path = require('path');
 const pub = path.join(__dirname, '..', 'public');
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
 const state = { log: [], mode: 'ok', failFirst: 0 };
 const srv = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');

@@ -13,10 +13,7 @@
   ],
   "vars": {
     "FREE_LIMIT": "4",
-    "FREE_PERIOD": "total",
-    // كود التفعيل (تقدر تحط أكتر من كود مفصولين بفاصلة). بيتكتب في الإعدادات ويشيل الحد.
-    // مؤقت: غيّره بعدين، وما ترفعش الملف ده على GitHub عام.
-    "ACTIVATION_CODE": "NOVA-KNJF-5UCE-LXBE",
-    "SESSION_SECRET": "o0D6NqlpcsN70Ov72Uww54POkzn8TNMS6oEmagkFgeNImmaD-meByQ"
+    "FREE_PERIOD": "total"
+    // ACTIVATION_CODE و SESSION_SECRET لازم يتحطوا كـ Secrets (wrangler secret put) - مش هنا.
   }
 }

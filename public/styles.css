@@ -272,3 +272,9 @@ html[data-theme="dark"] .row.streaming .md-tail>:last-child::after{background:va
 html[data-theme="dark"] .think .lbl,html[data-theme="dark"] .reason.live>summary .r-title{background-image:linear-gradient(100deg,#6b6b75 20%,#ececef 50%,#6b6b75 80%)}
 html[data-theme="dark"] .took{background:var(--soft)}
 html[data-theme="dark"] .reason,html[data-theme="dark"] .srcs{border-inline-start-color:var(--line-strong)}
+
+.task-panel{margin:8px 0;padding:10px 12px;border:1px solid var(--line,#ddd);border-radius:12px;font-size:13px;direction:rtl}
+.task-head{font-weight:600;margin-bottom:6px}
+.task-bar{height:5px;border-radius:3px;background:rgba(127,127,127,.25);overflow:hidden;margin-bottom:8px}
+.task-bar i{display:block;height:100%;background:currentColor;transition:width .3s}
+.task-item{padding:2px 0;opacity:.75}.task-item.running{opacity:1;font-weight:600}.task-item.failed{color:#8e2925;opacity:1}
