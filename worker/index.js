@@ -1,18 +1,25 @@
 // NOVA AI - Multi Provider Worker
-// Groq is the primary provider. Gemini and OpenRouter are automatic fallbacks.
-// Configure API keys as Cloudflare Worker Secrets; never put secrets in public/app.js.
+// Groq primary -> Gemini fallback -> OpenRouter fallback.
+// API keys must be stored as Cloudflare Worker Secrets.
 
 const TEXT_MODELS = [
   "openai/gpt-oss-120b",
   "qwen/qwen3.8-27b",
   "openai/gpt-oss-20b",
 ];
-const VISION_MODEL = "qwen/qwen3.8-27b";
-const SEARCH_MODELS = ["openai/gpt-oss-120b", "openai/gpt-oss-20b"];
 
-const GROQ_API = "https://api.groq.com/openai/v1/chat/completions";
-const GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
-const OPENROUTER_API = "https://openrouter.ai/api/v1/chat/completions";
+const VISION_MODEL = "qwen/qwen3.8-27b";
+const SEARCH_MODELS = [
+  "openai/gpt-oss-120b",
+  "openai/gpt-oss-20b",
+];
+
+const GROQ_API =
+  "https://api.groq.com/openai/v1/chat/completions";
+const GEMINI_API =
+  "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+const OPENROUTER_API =
+  "https://openrouter.ai/api/v1/chat/completions";
 
 const MAX_MESSAGES = 30;
 const MAX_CHARS = 45000;
@@ -35,7 +42,8 @@ const SYSTEM_PROMPT =
   "If an image is unclear or unreadable, say so instead of guessing.";
 
 const SEARCH_SYSTEM_PROMPT =
-  SYSTEM_PROMPT + " The user enabled web search. Search the web before answering, " +
+  SYSTEM_PROMPT +
+  " The user enabled web search. Search the web before answering, " +
   "prioritize recent and trustworthy sources, distinguish facts from uncertainty, " +
   "and provide clickable source URLs. Answer in the user's language. Never invent sources or URLs.";
 
@@ -60,23 +68,36 @@ const json = (body, status = 200, headers = {}) =>
   });
 
 function sendEvent(controller, data) {
-  controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`));
+  controller.enqueue(
+    new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`)
+  );
 }
 
-// Supports either a JSON array secret or newline/comma-separated keys.
-// Legacy single-key secrets remain supported.
+// Supports JSON arrays or comma/newline-separated keys.
+// Legacy single-key secrets are supported too.
 function readKeys(env, pluralName, singleName) {
-  const raw = String(env[pluralName] || env[singleName] || "").trim();
+  const raw = String(
+    env[pluralName] || env[singleName] || ""
+  ).trim();
+
   if (!raw) return [];
+
   let values;
+
   try {
     const parsed = JSON.parse(raw);
     values = Array.isArray(parsed) ? parsed : [raw];
   } catch {
     values = raw.split(/[\n,]+/);
   }
-  return [...new Set(values.map(v => String(v).trim()).filter(Boolean))]
-    .slice(0, MAX_KEYS_PER_PROVIDER);
+
+  return [
+    ...new Set(
+      values
+        .map(v => String(v).trim())
+        .filter(Boolean)
+    ),
+  ].slice(0, MAX_KEYS_PER_PROVIDER);
 }
 
 function getProviders(env) {
@@ -84,28 +105,67 @@ function getProviders(env) {
     {
       id: "groq",
       name: "Groq",
-      keys: readKeys(env, "GROQ_API_KEYS", "GROQ_API_KEY"),
-      models: [env.GROQ_MODEL, ...TEXT_MODELS].filter(Boolean),
-      visionModels: [env.GROQ_VISION_MODEL || VISION_MODEL],
+      keys: readKeys(
+        env,
+        "GROQ_API_KEYS",
+        "GROQ_API_KEY"
+      ),
+      models: [
+        env.GROQ_MODEL,
+        ...TEXT_MODELS,
+      ].filter(Boolean),
+      visionModels: [
+        env.GROQ_VISION_MODEL || VISION_MODEL,
+      ],
       searchModels: SEARCH_MODELS,
       url: GROQ_API,
     },
+
     {
       id: "gemini",
       name: "Gemini",
-      keys: readKeys(env, "GEMINI_API_KEYS", "GEMINI_API_KEY"),
-      models: [env.GEMINI_MODEL || "gemini-3.8-flash"],
-      visionModels: [env.GEMINI_MODEL || "gemini-3.8-flash"],
+      keys: readKeys(
+        env,
+        "GEMINI_API_KEYS",
+        "GEMINI_API_KEY"
+      ),
+      models: [
+        env.GEMINI_MODEL || "gemini-3.8-flash",
+      ],
+      visionModels: [
+        env.GEMINI_MODEL || "gemini-3.8-flash",
+      ],
       searchModels: [],
       url: GEMINI_API,
     },
+
     {
       id: "openrouter",
       name: "OpenRouter",
-      keys: readKeys(env, "OPENROUTER_API_KEYS", "OPENROUTER_API_KEY"),
-      models: [env.OPENROUTER_MODEL || "openrouter/free"],
-      // openrouter/free selects a model supporting image input when images are sent.
-      visionModels: [env.OPENROUTER_VISION_MODEL || "openrouter/free"],
+      keys: readKeys(
+        env,
+        "OPENROUTER_API_KEYS",
+        "OPENROUTER_API_KEY"
+      ),
+
+      // Flint first for coding and text tasks.
+      // OpenRouter Free is the fallback model router.
+      models: [
+        ...new Set([
+          env.OPENROUTER_MODEL ||
+            "recursive/flint-v1.0:free",
+
+          env.OPENROUTER_FALLBACK_MODEL ||
+            "openrouter/free",
+        ]),
+      ],
+
+      // Flint is text-only. Images use the vision-capable fallback.
+      visionModels: [
+        env.OPENROUTER_VISION_MODEL ||
+          "openrouter/free",
+      ],
+
       searchModels: [],
       url: OPENROUTER_API,
     },
@@ -113,7 +173,9 @@ function getProviders(env) {
 }
 
 function configuredProviders(env) {
-  return getProviders(env).filter(p => p.keys.length);
+  return getProviders(env).filter(
+    provider => provider.keys.length > 0
+  );
 }
 
 export default {
@@ -128,6 +190,7 @@ export default {
         keyCount: p.keys.length,
         primary: p.id === "groq",
       }));
+
       return json({
         ok: true,
         primaryProvider: "groq",
@@ -136,89 +199,189 @@ export default {
         textModels: TEXT_MODELS,
         visionModel: VISION_MODEL,
         searchModels: SEARCH_MODELS,
+        openrouterModels: [
+          "recursive/flint-v1.0:free",
+          "openrouter/free",
+        ],
         maxImagesPerRequest: MAX_IMAGES,
-        searchProvider: "Groq Browser Search (Groq keys required)",
-        note: "Provider/model availability and free-tier limits depend on each provider account.",
+        searchProvider:
+          "Groq Browser Search (Groq keys required)",
+        note:
+          "Provider/model availability and free-tier limits depend on each provider account.",
       });
     }
 
     if (url.pathname === "/api/chat") {
-      if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+      if (request.method !== "POST") {
+        return json(
+          { error: "Method not allowed" },
+          405
+        );
+      }
+
       return handleChat(request, env);
     }
 
     if (url.pathname === "/api/generate-files") {
-      if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+      if (request.method !== "POST") {
+        return json(
+          { error: "Method not allowed" },
+          405
+        );
+      }
+
       return handleGenerateFiles(request, env);
     }
 
-    if (env.ASSETS) return env.ASSETS.fetch(request);
-    return new Response("Not found", { status: 404 });
+    if (env.ASSETS) {
+      return env.ASSETS.fetch(request);
+    }
+
+    return new Response("Not found", {
+      status: 404,
+    });
   },
 };
 
 function validateMessages(body) {
-  if (!body || !Array.isArray(body.messages) || !body.messages.length) {
+  if (
+    !body ||
+    !Array.isArray(body.messages) ||
+    !body.messages.length
+  ) {
     return { error: "لا توجد رسائل." };
   }
 
   const messages = body.messages
-    .filter(m => m && (m.role === "user" || m.role === "assistant") &&
-      (typeof m.content === "string" || Array.isArray(m.content)))
+    .filter(
+      m =>
+        m &&
+        (m.role === "user" || m.role === "assistant") &&
+        (
+          typeof m.content === "string" ||
+          Array.isArray(m.content)
+        )
+    )
     .slice(-MAX_MESSAGES)
-    .map(m => ({ role: m.role, content: m.content }));
+    .map(m => ({
+      role: m.role,
+      content: m.content,
+    }));
 
-  while (messages.length && messages[0].role !== "user") messages.shift();
-  if (!messages.length || messages[messages.length - 1].role !== "user") {
-    return { error: "يجب أن تنتهي المحادثة برسالة من المستخدم." };
+  while (
+    messages.length &&
+    messages[0].role !== "user"
+  ) {
+    messages.shift();
   }
 
-  let total = 0, imageCount = 0;
+  if (
+    !messages.length ||
+    messages[messages.length - 1].role !== "user"
+  ) {
+    return {
+      error: "يجب أن تنتهي المحادثة برسالة من المستخدم.",
+    };
+  }
+
+  let total = 0;
+  let imageCount = 0;
+
   for (const m of messages) {
     if (typeof m.content === "string") {
       total += m.content.length;
       continue;
     }
-    if (m.role !== "user" || !Array.isArray(m.content)) {
-      return { error: "تنسيق الرسالة غير صالح." };
+
+    if (
+      m.role !== "user" ||
+      !Array.isArray(m.content)
+    ) {
+      return {
+        error: "تنسيق الرسالة غير صالح.",
+      };
     }
 
     for (const part of m.content) {
-      if (part?.type === "text" && typeof part.text === "string") {
+      if (
+        part?.type === "text" &&
+        typeof part.text === "string"
+      ) {
         total += part.text.length;
-      } else if (part?.type === "image_url" && typeof part.image_url?.url === "string") {
+      } else if (
+        part?.type === "image_url" &&
+        typeof part.image_url?.url === "string"
+      ) {
         imageCount++;
+
         const src = part.image_url.url;
-        if (!/^data:image\/(jpeg|jpg|png|webp|gif);base64,[a-z0-9+/=]+$/i.test(src)) {
-          return { error: "صيغة الصورة غير مدعومة. ارفع JPG أو PNG أو WEBP." };
+
+        if (
+          !/^data:image\/(jpeg|jpg|png|webp|gif);base64,[a-z0-9+/=]+$/i.test(
+            src
+          )
+        ) {
+          return {
+            error:
+              "صيغة الصورة غير مدعومة. ارفع JPG أو PNG أو WEBP.",
+          };
         }
+
         if (src.length > MAX_IMAGE_DATA_CHARS) {
-          return { error: "حجم الصورة بعد تجهيزها كبير جدًا." };
+          return {
+            error:
+              "حجم الصورة بعد تجهيزها كبير جدًا.",
+          };
         }
       } else {
-        return { error: "محتوى مرفق غير صالح." };
+        return {
+          error: "محتوى مرفق غير صالح.",
+        };
       }
     }
   }
 
-  if (total > MAX_CHARS) return { error: "المحادثة طويلة جدًا. ابدأ محادثة جديدة." };
-  if (imageCount > MAX_IMAGES) {
-    return { error: `يمكن تحليل ${MAX_IMAGES} صور كحد أقصى في الطلب الواحد.` };
+  if (total > MAX_CHARS) {
+    return {
+      error:
+        "المحادثة طويلة جدًا. ابدأ محادثة جديدة.",
+    };
   }
-  return { messages, hasImages: imageCount > 0 };
+
+  if (imageCount > MAX_IMAGES) {
+    return {
+      error:
+        `يمكن تحليل ${MAX_IMAGES} صور كحد أقصى في الطلب الواحد.`,
+    };
+  }
+
+  return {
+    messages,
+    hasImages: imageCount > 0,
+  };
 }
 
 function getRateHeaders(response) {
   const names = [
-    "x-ratelimit-limit-requests", "x-ratelimit-limit-tokens",
-    "x-ratelimit-remaining-requests", "x-ratelimit-remaining-tokens",
-    "x-ratelimit-reset-requests", "x-ratelimit-reset-tokens", "retry-after",
+    "x-ratelimit-limit-requests",
+    "x-ratelimit-limit-tokens",
+    "x-ratelimit-remaining-requests",
+    "x-ratelimit-remaining-tokens",
+    "x-ratelimit-reset-requests",
+    "x-ratelimit-reset-tokens",
+    "retry-after",
   ];
+
   const out = {};
+
   for (const name of names) {
     const value = response.headers.get(name);
-    if (value !== null) out[name] = value;
+
+    if (value !== null) {
+      out[name] = value;
+    }
   }
+
   return out;
 }
 
@@ -226,45 +389,91 @@ function novaHeaders(provider, model, response) {
   const headers = new Headers({
     "X-NOVA-Provider": provider,
     "X-NOVA-Model": model,
-    "Access-Control-Expose-Headers": "X-NOVA-Provider, X-NOVA-Model, X-NOVA-Rate-Limits",
+    "Access-Control-Expose-Headers":
+      "X-NOVA-Provider, X-NOVA-Model, X-NOVA-Rate-Limits",
   });
-  headers.set("X-NOVA-Rate-Limits", JSON.stringify(getRateHeaders(response)));
+
+  headers.set(
+    "X-NOVA-Rate-Limits",
+    JSON.stringify(getRateHeaders(response))
+  );
+
   return headers;
 }
 
-function buildPayload(model, messages, options, providerId) {
+function buildPayload(
+  model,
+  messages,
+  options,
+  providerId
+) {
   const payload = {
     model,
-    messages: [{ role: "system", content: options.systemPrompt || SYSTEM_PROMPT }, ...messages],
+    messages: [
+      {
+        role: "system",
+        content:
+          options.systemPrompt || SYSTEM_PROMPT,
+      },
+      ...messages,
+    ],
     stream: !!options.stream,
   };
 
   if (providerId === "groq") {
-    payload.max_completion_tokens = options.maxTokens || 8192;
-    if (options.temperature !== undefined) payload.temperature = options.temperature;
+    payload.max_completion_tokens =
+      options.maxTokens || 8192;
+
+    if (options.temperature !== undefined) {
+      payload.temperature = options.temperature;
+    }
+
     if (options.search) {
-      payload.tools = [{ type: "browser_search" }];
+      payload.tools = [
+        { type: "browser_search" },
+      ];
+
       payload.tool_choice = "required";
       payload.reasoning_effort = "low";
     } else if (options.reasoningEffort) {
-      payload.reasoning_effort = options.reasoningEffort;
+      payload.reasoning_effort =
+        options.reasoningEffort;
     }
   } else {
-    // Gemini and OpenRouter use the OpenAI-compatible max_tokens field.
-    payload.max_tokens = options.maxTokens || 8192;
-    if (options.temperature !== undefined) payload.temperature = options.temperature;
+    payload.max_tokens =
+      options.maxTokens || 8192;
+
+    if (options.temperature !== undefined) {
+      payload.temperature = options.temperature;
+    }
   }
+
   return payload;
 }
 
-async function requestProvider(provider, model, key, messages, options = {}) {
-  const payload = buildPayload(model, messages, options, provider.id);
+async function requestProvider(
+  provider,
+  model,
+  key,
+  messages,
+  options = {}
+) {
+  const payload = buildPayload(
+    model,
+    messages,
+    options,
+    provider.id
+  );
+
   const headers = {
     "Content-Type": "application/json",
     "Authorization": `Bearer ${key}`,
   };
+
   if (provider.id === "openrouter") {
-    headers["HTTP-Referer"] = "https://nova-ai.pages.dev";
+    headers["HTTP-Referer"] =
+      "https://nova-ai.pages.dev";
+
     headers["X-Title"] = "NOVA AI";
   }
 
@@ -275,202 +484,466 @@ async function requestProvider(provider, model, key, messages, options = {}) {
   });
 }
 
-function modelCandidates(provider, hasImages, options = {}) {
-  if (options.search) return provider.searchModels || [];
-  if (provider.id === "groq" && options.think) {
-    // Correct prefix: the model IDs use "gpt-oss-120b", not "gpt-oss/120b".
-    return provider.models.filter(model => model.startsWith("openai/gpt-oss-"));
+function modelCandidates(
+  provider,
+  hasImages,
+  options = {}
+) {
+  if (options.search) {
+    const allowed =
+      options.allowedModels ||
+      provider.searchModels ||
+      [];
+
+    return allowed.filter(model =>
+      (provider.searchModels || []).includes(model)
+    );
   }
-  return hasImages ? provider.visionModels : provider.models;
+
+  if (
+    provider.id === "groq" &&
+    options.think
+  ) {
+    return provider.models.filter(model =>
+      model.startsWith("openai/gpt-oss-")
+    );
+  }
+
+  return hasImages
+    ? provider.visionModels
+    : provider.models;
 }
 
-async function selectUpstream(messages, env, options = {}) {
+async function selectUpstream(
+  messages,
+  env,
+  options = {}
+) {
   const providers = configuredProviders(env);
-  let lastStatus = 503;
-  let lastDetails = "No configured provider keys.";
 
-  // The order is intentional: Groq is always attempted before Gemini and OpenRouter.
+  let lastStatus = 503;
+  let lastDetails =
+    "No configured provider keys.";
+
+  // Provider order: Groq, Gemini, OpenRouter.
   for (const provider of providers) {
-    const models = modelCandidates(provider, !!options.hasImages, options);
+    const models = modelCandidates(
+      provider,
+      !!options.hasImages,
+      options
+    );
+
     if (!models.length) continue;
 
     for (const model of models) {
       for (const key of provider.keys) {
         try {
-          const response = await requestProvider(provider, model, key, messages, options);
-          if (response.ok) return { response, model, provider: provider.id };
+          const response = await requestProvider(
+            provider,
+            model,
+            key,
+            messages,
+            options
+          );
+
+          if (response.ok) {
+            return {
+              response,
+              model,
+              provider: provider.id,
+            };
+          }
 
           lastStatus = response.status;
-          lastDetails = await response.text().catch(() => "");
+
+          lastDetails = await response
+            .text()
+            .catch(() => "");
+
           console.error(
             `NOVA ${provider.id} model ${model} failed:`,
             response.status,
             lastDetails.slice(0, 500)
           );
 
-          // A bad key may be followed by another configured key for this same provider.
-          if ([401, 402, 403].includes(response.status)) continue;
+          // Try another key for authentication/account errors.
+          if (
+            [401, 402, 403].includes(
+              response.status
+            )
+          ) {
+            continue;
+          }
 
-          // These errors may be model-specific or temporary; try the next model/provider.
-          if ([400, 404, 408, 413, 429, 500, 502, 503, 504].includes(response.status)) {
+          // Try next model/provider for temporary/model errors.
+          if (
+            [
+              400, 404, 408, 413,
+              429, 500, 502, 503, 504,
+            ].includes(response.status)
+          ) {
             break;
           }
+
           break;
         } catch (error) {
-          console.error(`NOVA ${provider.id} connection failed:`, error);
+          console.error(
+            `NOVA ${provider.id} connection failed:`,
+            error
+          );
+
           lastStatus = 502;
           lastDetails = String(error);
           break;
         }
       }
-
-      // If this model failed, try another model in the same provider where available.
-      if ([401, 402, 403].includes(lastStatus)) {
-        // Try remaining keys/models, then continue to the next configured provider.
-      }
     }
   }
-  return { response: null, model: null, provider: null, lastStatus, lastDetails };
+
+  return {
+    response: null,
+    model: null,
+    provider: null,
+    lastStatus,
+    lastDetails,
+  };
 }
 
 function searchSources(message) {
-  const annotations = Array.isArray(message?.annotations) ? message.annotations : [];
+  const annotations = Array.isArray(
+    message?.annotations
+  )
+    ? message.annotations
+    : [];
+
   const found = new Map();
+
   for (const item of annotations) {
-    const cite = item?.url_citation || item?.urlCitation || item;
-    const url = typeof cite?.url === "string" ? cite.url : "";
-    const title = typeof cite?.title === "string" ? cite.title : url;
-    if (url.startsWith("https://") || url.startsWith("http://")) {
+    const cite =
+      item?.url_citation ||
+      item?.urlCitation ||
+      item;
+
+    const url =
+      typeof cite?.url === "string"
+        ? cite.url
+        : "";
+
+    const title =
+      typeof cite?.title === "string"
+        ? cite.title
+        : url;
+
+    if (
+      url.startsWith("https://") ||
+      url.startsWith("http://")
+    ) {
       found.set(url, title || url);
     }
   }
-  return [...found.entries()].map(([url, title]) => ({ title, url })).slice(0, 10);
+
+  return [...found.entries()]
+    .map(([url, title]) => ({
+      title,
+      url,
+    }))
+    .slice(0, 10);
 }
 
 function appendSources(content, sources) {
   if (!sources.length) return content;
+
   const lines = sources.map(s =>
     `- [${s.title.replace(/[\[\]]/g, "")}](${s.url})`
   );
-  return `${content}\n\n**المصادر:**\n${lines.join("\n")}`;
+
+  return (
+    `${content}\n\n**المصادر:**\n` +
+    lines.join("\n")
+  );
 }
 
-async function handleSearchChat(validated, body, env) {
+async function handleSearchChat(
+  validated,
+  body,
+  env
+) {
   if (validated.hasImages) {
-    return json({
-      error: "البحث على الويب وتحليل الصور غير متاحين معًا في نفس الرسالة. أوقف البحث لتحليل الصورة.",
-    }, 400);
+    return json(
+      {
+        error:
+          "البحث على الويب وتحليل الصور غير متاحين معًا في نفس الرسالة. أوقف البحث لتحليل الصورة.",
+      },
+      400
+    );
   }
 
-  const groq = getProviders(env).find(p => p.id === "groq");
+  const groq = getProviders(env).find(
+    p => p.id === "groq"
+  );
+
   if (!groq?.keys.length) {
-    return json({ error: "البحث يحتاج مفتاح Groq. أضف GROQ_API_KEY أو GROQ_API_KEYS." }, 503);
+    return json(
+      {
+        error:
+          "البحث يحتاج مفتاح Groq. أضف GROQ_API_KEY أو GROQ_API_KEYS.",
+      },
+      503
+    );
   }
 
-  const avoid = new Set(Array.isArray(body.avoidModels) ? body.avoidModels : []);
-  const models = SEARCH_MODELS.filter(m => !avoid.has(m));
+  const avoid = new Set(
+    Array.isArray(body.avoidModels)
+      ? body.avoidModels
+      : []
+  );
+
+  const models = SEARCH_MODELS.filter(
+    model => !avoid.has(model)
+  );
+
   if (!models.length) {
-    return json({ error: "موديلات البحث في فترة راحة مؤقتة. جرّب لاحقًا أو أوقف البحث." }, 429);
+    return json(
+      {
+        error:
+          "موديلات البحث في فترة راحة مؤقتة. جرّب لاحقًا أو أوقف البحث.",
+      },
+      429
+    );
   }
 
-  const chosen = await selectUpstream(validated.messages, env, {
-    stream: false,
-    search: true,
-    maxTokens: 4096,
-    temperature: 0.2,
-    systemPrompt: SEARCH_SYSTEM_PROMPT,
-  });
+  const chosen = await selectUpstream(
+    validated.messages,
+    env,
+    {
+      stream: false,
+      search: true,
+
+      // Ensures avoidModels is actually respected.
+      allowedModels: models,
+
+      maxTokens: 4096,
+      temperature: 0.2,
+      systemPrompt: SEARCH_SYSTEM_PROMPT,
+    }
+  );
 
   if (!chosen.response) {
     if (chosen.lastStatus === 400) {
-      return json({
-        error: "Groq رفض طلب البحث. تأكد أن Browser Search متاح لموديل GPT-OSS في حسابك.",
-      }, 502);
+      return json(
+        {
+          error:
+            "Groq رفض طلب البحث. تأكد أن Browser Search متاح لموديل GPT-OSS في حسابك.",
+        },
+        502
+      );
     }
-    return providerError(chosen.lastStatus, chosen.provider || "groq");
+
+    return providerError(
+      chosen.lastStatus,
+      chosen.provider || "groq"
+    );
   }
 
   try {
     const result = await chosen.response.json();
     const message = result.choices?.[0]?.message;
     const raw = message?.content;
-    if (typeof raw !== "string" || !raw.trim()) {
-      return json({ error: "البحث لم يُرجع إجابة." }, 502);
+
+    if (
+      typeof raw !== "string" ||
+      !raw.trim()
+    ) {
+      return json(
+        {
+          error: "البحث لم يُرجع إجابة.",
+        },
+        502
+      );
     }
 
     const sources = searchSources(message);
-    const content = appendSources(raw, sources);
-    const headers = novaHeaders(chosen.provider, chosen.model, chosen.response);
-    headers.set("Content-Type", "text/event-stream; charset=utf-8");
-    headers.set("Cache-Control", "no-cache, no-transform");
-    headers.set("X-Accel-Buffering", "no");
+    const content = appendSources(
+      raw,
+      sources
+    );
+
+    const headers = novaHeaders(
+      chosen.provider,
+      chosen.model,
+      chosen.response
+    );
+
+    headers.set(
+      "Content-Type",
+      "text/event-stream; charset=utf-8"
+    );
+
+    headers.set(
+      "Cache-Control",
+      "no-cache, no-transform"
+    );
+
+    headers.set(
+      "X-Accel-Buffering",
+      "no"
+    );
 
     const stream = new ReadableStream({
       start(controller) {
-        sendEvent(controller, { t: content });
+        sendEvent(controller, {
+          t: content,
+        });
+
         sendEvent(controller, {
           done: true,
-          finish: result.choices?.[0]?.finish_reason || "stop",
+          finish:
+            result.choices?.[0]?.finish_reason ||
+            "stop",
           model: chosen.model,
           provider: chosen.provider,
           sources,
         });
+
         controller.close();
       },
     });
-    return new Response(stream, { status: 200, headers });
+
+    return new Response(stream, {
+      status: 200,
+      headers,
+    });
   } catch (error) {
-    console.error("Browser search response error:", error);
-    return json({ error: "تعذرت قراءة نتيجة البحث من Groq." }, 502);
+    console.error(
+      "Browser search response error:",
+      error
+    );
+
+    return json(
+      {
+        error:
+          "تعذرت قراءة نتيجة البحث من Groq.",
+      },
+      502
+    );
   }
 }
 
 async function handleChat(request, env) {
   let body;
+
   try {
     body = await request.json();
   } catch {
-    return json({ error: "طلب JSON غير صالح." }, 400);
+    return json(
+      {
+        error: "طلب JSON غير صالح.",
+      },
+      400
+    );
   }
 
   const validated = validateMessages(body);
-  if (validated.error) return json({ error: validated.error }, 400);
-  if (!configuredProviders(env).length) {
-    return json({
-      error: "لا توجد مفاتيح API. أضف GROQ_API_KEY أو GEMINI_API_KEY أو OPENROUTER_API_KEY في Cloudflare Secrets.",
-    }, 500);
+
+  if (validated.error) {
+    return json(
+      { error: validated.error },
+      400
+    );
   }
 
-  if (body.search === true) return handleSearchChat(validated, body, env);
+  if (!configuredProviders(env).length) {
+    return json(
+      {
+        error:
+          "لا توجد مفاتيح API. أضف GROQ_API_KEY أو GEMINI_API_KEY أو OPENROUTER_API_KEY في Cloudflare Secrets.",
+      },
+      500
+    );
+  }
 
-  const think = body.think === true && !validated.hasImages;
-  const chosen = await selectUpstream(validated.messages, env, {
-    stream: true,
-    hasImages: validated.hasImages,
-    think,
-    reasoningEffort: think ? "high" : undefined,
-    maxTokens: 8192,
-  });
+  if (body.search === true) {
+    return handleSearchChat(
+      validated,
+      body,
+      env
+    );
+  }
 
-  if (!chosen.response) return providerError(chosen.lastStatus, "available providers");
+  const think =
+    body.think === true &&
+    !validated.hasImages;
+
+  const chosen = await selectUpstream(
+    validated.messages,
+    env,
+    {
+      stream: true,
+      hasImages: validated.hasImages,
+      think,
+      reasoningEffort:
+        think ? "high" : undefined,
+      maxTokens: 8192,
+    }
+  );
+
+  if (!chosen.response) {
+    return providerError(
+      chosen.lastStatus,
+      "available providers"
+    );
+  }
 
   const upstream = chosen.response;
   const selectedModel = chosen.model;
   const selectedProvider = chosen.provider;
-  if (!upstream.body) return json({ error: "مزود الذكاء الاصطناعي لم يرجع مجرى بيانات." }, 502);
 
-  console.log("NOVA selected provider/model:", selectedProvider, selectedModel, getRateHeaders(upstream));
+  if (!upstream.body) {
+    return json(
+      {
+        error:
+          "مزود الذكاء الاصطناعي لم يرجع مجرى بيانات.",
+      },
+      502
+    );
+  }
 
-  const headers = novaHeaders(selectedProvider, selectedModel, upstream);
-  headers.set("Content-Type", "text/event-stream; charset=utf-8");
-  headers.set("Cache-Control", "no-cache, no-transform");
-  headers.set("X-Accel-Buffering", "no");
+  console.log(
+    "NOVA selected provider/model:",
+    selectedProvider,
+    selectedModel,
+    getRateHeaders(upstream)
+  );
+
+  const headers = novaHeaders(
+    selectedProvider,
+    selectedModel,
+    upstream
+  );
+
+  headers.set(
+    "Content-Type",
+    "text/event-stream; charset=utf-8"
+  );
+
+  headers.set(
+    "Cache-Control",
+    "no-cache, no-transform"
+  );
+
+  headers.set(
+    "X-Accel-Buffering",
+    "no"
+  );
 
   const stream = new ReadableStream({
     async start(controller) {
       const reader = upstream.body.getReader();
       const decoder = new TextDecoder();
-      let buffer = "", finish = null, closed = false;
+
+      let buffer = "";
+      let finish = null;
+      let closed = false;
 
       const close = () => {
         if (!closed) {
@@ -478,19 +951,32 @@ async function handleChat(request, env) {
           controller.close();
         }
       };
+
       const fail = message => {
         if (!closed) {
-          sendEvent(controller, { error: message });
+          sendEvent(controller, {
+            error: message,
+          });
+
           close();
         }
       };
+
       const processLine = line => {
         line = line.trim();
-        if (!line.startsWith("data:")) return;
+
+        if (!line.startsWith("data:")) {
+          return;
+        }
+
         const raw = line.slice(5).trim();
-        if (!raw || raw === "[DONE]") return;
+
+        if (!raw || raw === "[DONE]") {
+          return;
+        }
 
         let chunk;
+
         try {
           chunk = JSON.parse(raw);
         } catch {
@@ -499,162 +985,398 @@ async function handleChat(request, env) {
 
         const choice = chunk.choices?.[0];
         const content = choice?.delta?.content;
-        if (typeof content === "string" && content.length) sendEvent(controller, { t: content });
-        if (choice?.finish_reason) finish = choice.finish_reason;
+
+        if (
+          typeof content === "string" &&
+          content.length
+        ) {
+          sendEvent(controller, {
+            t: content,
+          });
+        }
+
+        if (choice?.finish_reason) {
+          finish = choice.finish_reason;
+        }
       };
 
       try {
         while (!closed) {
-          const { done, value } = await reader.read();
+          const { done, value } =
+            await reader.read();
+
           if (done) break;
-          buffer += decoder.decode(value, { stream: true });
+
+          buffer += decoder.decode(value, {
+            stream: true,
+          });
+
           const lines = buffer.split("\n");
           buffer = lines.pop() || "";
-          for (const line of lines) processLine(line);
+
+          for (const line of lines) {
+            processLine(line);
+          }
         }
 
         buffer += decoder.decode();
-        if (buffer.trim()) processLine(buffer);
+
+        if (buffer.trim()) {
+          processLine(buffer);
+        }
+
         sendEvent(controller, {
           done: true,
-          finish: finish === "length" ? "MAX_TOKENS" : finish,
+          finish:
+            finish === "length"
+              ? "MAX_TOKENS"
+              : finish,
           model: selectedModel,
           provider: selectedProvider,
         });
+
         close();
       } catch (error) {
-        console.error(`${selectedProvider} streaming error:`, error);
-        fail("انقطع الاتصال أثناء استقبال الرد.");
+        console.error(
+          `${selectedProvider} streaming error:`,
+          error
+        );
+
+        fail(
+          "انقطع الاتصال أثناء استقبال الرد."
+        );
       } finally {
-        try { reader.releaseLock(); } catch {}
+        try {
+          reader.releaseLock();
+        } catch {}
       }
     },
+
     async cancel() {
-      try { await upstream.body.cancel(); } catch {}
+      try {
+        await upstream.body.cancel();
+      } catch {}
     },
   });
 
-  return new Response(stream, { status: 200, headers });
+  return new Response(stream, {
+    status: 200,
+    headers,
+  });
 }
 
-async function handleGenerateFiles(request, env) {
+async function handleGenerateFiles(
+  request,
+  env
+) {
   let body;
+
   try {
     body = await request.json();
   } catch {
-    return json({ error: "طلب JSON غير صالح." }, 400);
+    return json(
+      {
+        error: "طلب JSON غير صالح.",
+      },
+      400
+    );
   }
 
   const validated = validateMessages(body);
-  if (validated.error) return json({ error: validated.error }, 400);
-  if (validated.hasImages) {
-    return json({ error: "أوقف إرفاق الصور قبل طلب توليد الملفات." }, 400);
-  }
-  if (!configuredProviders(env).length) {
-    return json({ error: "لا توجد مفاتيح API مضافة في Cloudflare Secrets." }, 500);
+
+  if (validated.error) {
+    return json(
+      { error: validated.error },
+      400
+    );
   }
 
-  const chosen = await selectUpstream(validated.messages, env, {
-    stream: false,
-    maxTokens: 8192,
-    temperature: 0.2,
-    systemPrompt: FILES_SYSTEM_PROMPT,
-  });
-  if (!chosen.response) return providerError(chosen.lastStatus, "available providers");
+  if (validated.hasImages) {
+    return json(
+      {
+        error:
+          "أوقف إرفاق الصور قبل طلب توليد الملفات.",
+      },
+      400
+    );
+  }
+
+  if (!configuredProviders(env).length) {
+    return json(
+      {
+        error:
+          "لا توجد مفاتيح API مضافة في Cloudflare Secrets.",
+      },
+      500
+    );
+  }
+
+  const chosen = await selectUpstream(
+    validated.messages,
+    env,
+    {
+      stream: false,
+      maxTokens: 8192,
+      temperature: 0.2,
+      systemPrompt: FILES_SYSTEM_PROMPT,
+    }
+  );
+
+  if (!chosen.response) {
+    return providerError(
+      chosen.lastStatus,
+      "available providers"
+    );
+  }
 
   try {
     const result = await chosen.response.json();
-    const raw = result.choices?.[0]?.message?.content;
-    if (typeof raw !== "string" || !raw.trim()) {
-      return json({ error: "النموذج لم يُرجع محتوى للملفات." }, 502);
+
+    const raw =
+      result.choices?.[0]?.message?.content;
+
+    if (
+      typeof raw !== "string" ||
+      !raw.trim()
+    ) {
+      return json(
+        {
+          error:
+            "النموذج لم يُرجع محتوى للملفات.",
+        },
+        502
+      );
     }
 
     let parsed;
+
     try {
-      const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+      const cleaned = raw
+        .replace(/^```(?:json)?\s*/i, "")
+        .replace(/\s*```$/, "")
+        .trim();
+
       const start = cleaned.indexOf("{");
       const end = cleaned.lastIndexOf("}");
-      parsed = JSON.parse(start >= 0 && end > start ? cleaned.slice(start, end + 1) : cleaned);
+
+      parsed = JSON.parse(
+        start >= 0 && end > start
+          ? cleaned.slice(start, end + 1)
+          : cleaned
+      );
     } catch (error) {
-      console.error("Generated files JSON parse error:", error, raw.slice(0, 1000));
-      return json({ error: "تعذر قراءة الملفات التي أنشأها النموذج. جرّب طلبًا أبسط." }, 502);
+      console.error(
+        "Generated files JSON parse error:",
+        error,
+        raw.slice(0, 1000)
+      );
+
+      return json(
+        {
+          error:
+            "تعذر قراءة الملفات التي أنشأها النموذج. جرّب طلبًا أبسط.",
+        },
+        502
+      );
     }
 
-    const files = normalizeGeneratedFiles(parsed.files);
-    if (!files.length) return json({ error: "لم يتم إنشاء ملفات صالحة." }, 502);
+    const files = normalizeGeneratedFiles(
+      parsed.files
+    );
 
-    const rateLimits = getRateHeaders(chosen.response);
-    return json({
-      ok: true,
-      message: typeof parsed.message === "string"
-        ? parsed.message.slice(0, 3000)
-        : "تم إنشاء الملفات المطلوبة. يمكنك تحميلها من الأسفل.",
-      files,
-      model: chosen.model,
-      provider: chosen.provider,
-      rateLimits,
-    }, 200, {
-      "X-NOVA-Provider": chosen.provider,
-      "X-NOVA-Model": chosen.model,
-      "X-NOVA-Rate-Limits": JSON.stringify(rateLimits),
-    });
+    if (!files.length) {
+      return json(
+        {
+          error:
+            "لم يتم إنشاء ملفات صالحة.",
+        },
+        502
+      );
+    }
+
+    const rateLimits = getRateHeaders(
+      chosen.response
+    );
+
+    return json(
+      {
+        ok: true,
+
+        message:
+          typeof parsed.message === "string"
+            ? parsed.message.slice(0, 3000)
+            : "تم إنشاء الملفات المطلوبة. يمكنك تحميلها من الأسفل.",
+
+        files,
+        model: chosen.model,
+        provider: chosen.provider,
+        rateLimits,
+      },
+      200,
+      {
+        "X-NOVA-Provider": chosen.provider,
+        "X-NOVA-Model": chosen.model,
+        "X-NOVA-Rate-Limits":
+          JSON.stringify(rateLimits),
+      }
+    );
   } catch (error) {
-    console.error("File generation response error:", error);
-    return json({ error: "تعذر قراءة استجابة مزود الذكاء الاصطناعي." }, 502);
+    console.error(
+      "File generation response error:",
+      error
+    );
+
+    return json(
+      {
+        error:
+          "تعذر قراءة استجابة مزود الذكاء الاصطناعي.",
+      },
+      502
+    );
   }
 }
 
 function normalizeGeneratedFiles(input) {
   if (!Array.isArray(input)) return [];
+
   const files = [];
   let totalChars = 0;
+
   const usedNames = new Set();
 
-  for (const item of input.slice(0, MAX_GENERATED_FILES)) {
-    if (!item || typeof item.name !== "string" || typeof item.content !== "string") continue;
+  for (
+    const item of input.slice(
+      0,
+      MAX_GENERATED_FILES
+    )
+  ) {
+    if (
+      !item ||
+      typeof item.name !== "string" ||
+      typeof item.content !== "string"
+    ) {
+      continue;
+    }
 
-    let name = item.name.replace(/\\/g, "/").trim();
-    name = name.split("/").filter(part => part && part !== "." && part !== "..").join("/");
-    name = name.replace(/[<>:"|?*\u0000-\u001f]/g, "_").slice(0, 180);
+    let name = item.name
+      .replace(/\\/g, "/")
+      .trim();
 
-    if (!name || item.content.length > MAX_GENERATED_FILE_CHARS) continue;
-    if (totalChars + item.content.length > MAX_GENERATED_TOTAL_CHARS) break;
+    name = name
+      .split("/")
+      .filter(
+        part =>
+          part &&
+          part !== "." &&
+          part !== ".."
+      )
+      .join("/");
+
+    name = name
+      .replace(/[<>:"|?*\u0000-\u001f]/g, "_")
+      .slice(0, 180);
+
+    if (
+      !name ||
+      item.content.length >
+        MAX_GENERATED_FILE_CHARS
+    ) {
+      continue;
+    }
+
+    if (
+      totalChars + item.content.length >
+      MAX_GENERATED_TOTAL_CHARS
+    ) {
+      break;
+    }
 
     let uniqueName = name;
     let suffix = 2;
-    while (usedNames.has(uniqueName.toLowerCase())) {
+
+    while (
+      usedNames.has(uniqueName.toLowerCase())
+    ) {
       const dot = name.lastIndexOf(".");
-      uniqueName = dot > 0
-        ? name.slice(0, dot) + "-" + suffix++ + name.slice(dot)
-        : name + "-" + suffix++;
+
+      uniqueName =
+        dot > 0
+          ? name.slice(0, dot) +
+            "-" +
+            suffix++ +
+            name.slice(dot)
+          : name + "-" + suffix++;
     }
 
     usedNames.add(uniqueName.toLowerCase());
+
     totalChars += item.content.length;
-    files.push({ name: uniqueName, content: item.content });
+
+    files.push({
+      name: uniqueName,
+      content: item.content,
+    });
   }
+
   return files;
 }
 
 function providerError(status, provider) {
   if (status === 401) {
-    return json({ error: `مفتاح API غير صالح لدى ${provider}. راجع Cloudflare Secrets.` }, 502);
+    return json(
+      {
+        error:
+          `مفتاح API غير صالح لدى ${provider}. راجع Cloudflare Secrets.`,
+      },
+      502
+    );
   }
+
   if (status === 402) {
-    return json({ error: `حساب ${provider} لا يملك رصيدًا أو أهلية استخدام كافية.` }, 502);
+    return json(
+      {
+        error:
+          `حساب ${provider} لا يملك رصيدًا أو أهلية استخدام كافية.`,
+      },
+      502
+    );
   }
+
   if (status === 403) {
-    return json({ error: `حساب ${provider} لا يملك صلاحية استخدام هذا الموديل أو الخدمة.` }, 502);
+    return json(
+      {
+        error:
+          `حساب ${provider} لا يملك صلاحية استخدام هذا الموديل أو الخدمة.`,
+      },
+      502
+    );
   }
+
   if (status === 413) {
-    return json({ error: "حجم الطلب كبير جدًا. قلل عدد الملفات أو الصور." }, 413);
+    return json(
+      {
+        error:
+          "حجم الطلب كبير جدًا. قلل عدد الملفات أو الصور.",
+      },
+      413
+    );
   }
+
   if (status === 429) {
-    return json({
-      error: "وصلت كل الخدمات المتاحة إلى حدود الاستخدام المؤقت. جرّب لاحقًا.",
-    }, 429);
+    return json(
+      {
+        error:
+          "وصلت كل الخدمات المتاحة إلى حدود الاستخدام المؤقت. جرّب لاحقًا.",
+      },
+      429
+    );
   }
-  return json({
-    error: "تعذر تشغيل الخدمات المتاحة حاليًا. راجع إعدادات المفاتيح والموديلات ثم حاول مرة أخرى.",
-  }, 502);
+
+  return json(
+    {
+      error:
+        "تعذر تشغيل الخدمات المتاحة حاليًا. راجع إعدادات المفاتيح والموديلات ثم حاول مرة أخرى.",
+    },
+    502
+  );
 }
