@@ -49,9 +49,18 @@ const FILES_TIMEOUT_MS = 150000;
 const MAX_ATTEMPTS = 3;
 
 const SUPPORTED_EXTENSIONS = [
-  'gd', 'tscn', 'tres', 'gdshader', 'shader',
-  'json', 'txt', 'md', 'csv', 'xml',
-  'html', 'css', 'js', 'py', 'ini', 'cfg', 'log', 'godot', 'zip'
+  // Godot
+  'gd', 'tscn', 'tres', 'gdshader', 'gdshaderinc', 'shader', 'godot', 'gdextension', 'cfg', 'import', 'translation', 'po', 'pot',
+  // data / docs
+  'json', 'jsonc', 'txt', 'md', 'markdown', 'rst', 'csv', 'tsv', 'xml', 'yml', 'yaml', 'toml', 'ini', 'log', 'svg', 'env.example',
+  // web
+  'html', 'htm', 'css', 'scss', 'less', 'js', 'mjs', 'cjs', 'ts', 'jsx', 'tsx', 'vue', 'svelte',
+  // other languages
+  'py', 'java', 'kt', 'cs', 'c', 'h', 'cpp', 'hpp', 'cc', 'rs', 'go', 'php', 'rb', 'lua', 'swift', 'dart', 'sql', 'sh', 'bat', 'ps1',
+  'vert', 'frag', 'glsl',
+  // config files without a real extension
+  'gitignore', 'gitattributes', 'editorconfig', 'dockerfile', 'makefile', 'license', 'readme',
+  'zip'
 ];
 
 let pendingFiles = [];
@@ -677,7 +686,19 @@ function formatSize(bytes) {
 }
 
 function getExtension(name) {
-  return name.split('.').pop().toLowerCase();
+  const base = String(name).split(/[\\/]/).pop().toLowerCase();
+  return base.includes('.') ? base.split('.').pop() : base; // "Dockerfile" -> "dockerfile", ".gitignore" -> "gitignore"
+}
+const BINARY_EXTENSIONS = new Set(['exe', 'dll', 'so', 'bin', 'o', 'class', 'jar', 'apk', 'aab', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'ico', 'mp3', 'ogg', 'wav', 'mp4', 'mov', 'avi', 'ttf', 'otf', 'woff', 'woff2', 'glb', 'gltf', 'fbx', 'blend', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'rar', '7z', 'tar', 'gz', 'scn', 'res', 'ctex', 'stex', 'pck', 'wasm']);
+// Unknown extension: accept it anyway if it really is readable UTF-8 text (no NUL bytes), so uncommon file types still work.
+async function looksLikeText(file) {
+  try {
+    const buf = new Uint8Array(await file.slice(0, 4096).arrayBuffer());
+    if (!buf.length) return false;
+    for (let i = 0; i < buf.length; i++) if (buf[i] === 0) return false;
+    new TextDecoder('utf-8', { fatal: true }).decode(buf.slice(0, buf.length - 3)); // tolerate a cut multibyte tail
+    return true;
+  } catch { return false; }
 }
 
 function renderProjectChip(chat) {
@@ -837,7 +858,7 @@ async function handleFiles(fileList, kind) {
     if (ext !== 'zip' && ext !== 'pdf' && file.size > MAX_FILE_SIZE) { toast('حجم الملف أكبر من 1MB: ' + file.name); continue; }
     if (ext === 'pdf') { await handlePdf(file); continue; }
     if (ext === 'zip') { await handleProjectUpload('zip', [file]); continue; }
-    if (!SUPPORTED_EXTENSIONS.includes(ext)) { toast('نوع الملف غير مدعوم: ' + file.name); continue; }
+    if (!SUPPORTED_EXTENSIONS.includes(ext) && (BINARY_EXTENSIONS.has(ext) || !(await looksLikeText(file)))) { toast('نوع الملف غير مدعوم (ملف غير نصي): ' + file.name); continue; }
     try {
       const full = await file.text();
       const content = full.slice(0, MAX_FILE_CHARS);
@@ -1661,7 +1682,15 @@ function rememberLimits(model, limits) {
 
 function wantsFiles(text) {
   const s = String(text || '').toLowerCase();
-  return /(?:اعمل|أنشئ|انشئ|ولّد|ولد|جهّز|جهز|اصنع|ابن(?:ي|اء)?|صدّر|صدر).{0,45}(?:ملف|ملفات|مشروع|zip)|(?:ملف|ملفات|مشروع).{0,35}(?:جاهز|لتحميل|تحميل|zip)|(?:create|generate|make|build|export).{0,50}(?:file|files|project|zip)|(?:file|files|project).{0,35}(?:download|ready|zip)/i.test(s);
+  const verb = '(?:اعمل|أنشئ|انشئ|ولّد|ولد|جهّز|جهز|اصنع|ابن(?:ي|اء)?|صدّر|صدر|اكتب|اكتبلي|ابعت|ابعتلي|اديني|هات|عايز|عاوز|أريد|اريد)';
+  return new RegExp(
+    '(?:اعمل|أنشئ|انشئ|ولّد|ولد|جهّز|جهز|اصنع|ابن(?:ي|اء)?|صدّر|صدر).{0,45}(?:ملف|ملفات|مشروع|zip)' +
+    '|' + verb + '.{0,25}(?:ملف|ملفات)' +
+    '|' + verb + '.{0,40}\\b[\\w-]+\\.(?:gd|tscn|tres|gdshader|json|py|js|ts|html|css|txt|md|cfg|csv)\\b' +
+    '|(?:ملف|ملفات|مشروع).{0,35}(?:جاهز|لتحميل|تحميل|zip)' +
+    '|(?:create|generate|make|build|export|write|give me).{0,50}(?:file|files|project|zip)' +
+    '|(?:create|generate|make|write).{0,40}\\b[\\w-]+\\.(?:gd|tscn|tres|gdshader|json|py|js|ts|html|css|txt|md|cfg|csv)\\b' +
+    '|(?:file|files|project).{0,35}(?:download|ready|zip)', 'i').test(s);
 }
 
 function hasCodeContext(chat, attachments, text) {
@@ -2076,7 +2105,26 @@ async function copyText(t) {
   }
 }
 
+const LANG_EXT = { gdscript: 'gd', gd: 'gd', tscn: 'tscn', tres: 'tres', gdshader: 'gdshader', shader: 'gdshader', python: 'py', py: 'py', javascript: 'js', js: 'js', typescript: 'ts', ts: 'ts', jsx: 'jsx', tsx: 'tsx', html: 'html', css: 'css', json: 'json', yaml: 'yml', yml: 'yml', toml: 'toml', xml: 'xml', sql: 'sql', bash: 'sh', sh: 'sh', shell: 'sh', java: 'java', kotlin: 'kt', csharp: 'cs', cs: 'cs', c: 'c', cpp: 'cpp', rust: 'rs', go: 'go', php: 'php', ruby: 'rb', lua: 'lua', swift: 'swift', dart: 'dart', markdown: 'md', md: 'md', ini: 'ini', cfg: 'cfg', csv: 'csv', text: 'txt', txt: 'txt' };
+function codeFileName(lang, code) {
+  const hint = /^\s*(?:#|\/\/|--|\/\*|<!--)\s*(?:file(?:name)?\s*:?\s*)?([\w./-]+\.[A-Za-z0-9]{1,10})\b/i.exec(code.split('\n')[0] || '');
+  if (hint) return hint[1].split('/').pop();
+  const ext = LANG_EXT[String(lang || '').toLowerCase()] || 'txt';
+  const cls = ext === 'gd' ? /^\s*class_name\s+([A-Za-z_]\w*)/m.exec(code) : null;
+  const base = cls ? cls[1].replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase() : 'nova-code';
+  return base + '.' + ext;
+}
 el.msgs.addEventListener('click', async (e) => {
+  const dl = e.target.closest('[data-dl]');
+  if (dl) {
+    const box = dl.closest('.code');
+    const code = box?.querySelector('code');
+    if (!code) return;
+    const text = code.textContent;
+    downloadOneFile({ name: codeFileName(box.querySelector('.code-head > span')?.textContent, text), content: text });
+    toast('تم تنزيل الملف.');
+    return;
+  }
   const cb = e.target.closest('[data-copy]');
   if (cb) {
     const code = cb.closest('.code')?.querySelector('code');

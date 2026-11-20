@@ -9,7 +9,8 @@
  */
 
 const TEXT_EXT = new Set(['gd', 'tscn', 'tres', 'gdshader', 'shader', 'godot', 'cfg', 'json', 'md', 'txt', 'csv', 'import', 'gdextension',
-  'py', 'js', 'ts', 'jsx', 'tsx', 'html', 'css', 'xml', 'yml', 'yaml', 'toml', 'ini', 'sh', 'c', 'cpp', 'h', 'cs', 'java', 'rs', 'go', 'php', 'sql', 'svg', 'log']);
+  'py', 'js', 'ts', 'jsx', 'tsx', 'html', 'css', 'xml', 'yml', 'yaml', 'toml', 'ini', 'sh', 'c', 'cpp', 'h', 'cs', 'java', 'rs', 'go', 'php', 'sql', 'svg', 'log',
+  'gdshaderinc', 'jsonc', 'tsv', 'rst', 'markdown', 'htm', 'scss', 'less', 'mjs', 'cjs', 'vue', 'svelte', 'kt', 'hpp', 'cc', 'rb', 'lua', 'swift', 'dart', 'bat', 'ps1', 'vert', 'frag', 'glsl', 'po', 'pot', 'translation']);
 const SKIP_EXT_IMPORT = new Set(['import']); // generated metadata, never useful as context
 const IGNORED_DIRS = ['.git', '.godot', '.import', 'node_modules', '.vscode', '.idea', 'android/build', 'build'];
 const LIMITS = { maxFiles: 4000, maxTextFileBytes: 400 * 1024, maxTotalTextBytes: 12 * 1024 * 1024, maxZipEntryBytes: 2 * 1024 * 1024 };

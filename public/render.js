@@ -95,7 +95,7 @@ function blocks(t) {
 function codeBlock(lang, code, copyLabel) {
   code = code.replace(/\n$/, '');
   return '<div class="code"><div class="code-head"><span>' + esc(lang || 'code') +
-    '</span><button type="button" class="copy" data-copy>' + (copyLabel || 'Copy') + '</button></div><pre><code>' + highlight(code, lang) + '</code></pre></div>';
+    '</span><span class="code-acts"><button type="button" class="copy" data-dl><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg><span>تنزيل</span></button><button type="button" class="copy" data-copy>' + (copyLabel || 'Copy') + '</button></span></div><pre><code>' + highlight(code, lang) + '</code></pre></div>';
 }
 function md(src, copyLabel) {
   const re = /```([\w+#.-]*)[^\n]*\n?([\s\S]*?)(?:```|$)/g;

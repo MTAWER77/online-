@@ -322,3 +322,4 @@ button{transition:transform .12s ease,background-color .18s ease,opacity .18s ea
 button:active:not(:disabled){transform:scale(.96)}
 .chat-item{transition:background-color .18s ease}
 @media (prefers-reduced-motion:reduce){.fw,.steps>.step:last-child{animation:none}}
+.code-acts{display:flex;align-items:center;gap:2px}
