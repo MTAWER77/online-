@@ -1274,15 +1274,20 @@ function paintRun(run) {
   if (b > run.stableLen) {
     n.stable.insertAdjacentHTML('beforeend', R.md(run.text.slice(run.stableLen, b), COPY_HTML));
     run.stableLen = b;
+    run.fade = null;
   }
   n.tail.innerHTML = R.md(run.text.slice(run.stableLen), COPY_HTML);
-  if (stick) scrollDown(); else updateToBottom();
+  n.tail.style.setProperty('--cd', '-' + Math.round(performance.now() % 1500) + 'ms'); // keeps the end-dot pulse continuous
+  fadeTail(run);
+  if (stick) { if (run.pending) followScroll(); else scrollDown(); } else updateToBottom();
   if (run.pending) schedulePaint(run);
 }
 function schedulePaint(run) { if (!run.raf) run.raf = requestAnimationFrame(() => paintRun(run)); }
 
-/* ---------- smooth, readable reveal (typing pace follows the backlog, never jumps) ---------- */
-const REVEAL = { base: 60, gain: 1.0, max: 220, finishSecs: 12, finishMax: 650 };
+/* ---------- smooth, readable reveal: word by word, slow and calm like Claude / ChatGPT ---------- */
+// Rates are characters per second. Lower base/max = slower typing. finishSecs caps how long the backlog may take once the model is done.
+const REVEAL = { base: 26, gain: 0.25, max: 70, finishSecs: 18, finishMax: 220 };
+const FADE_MS = 520;
 function revealStep(run) {
   const now = performance.now();
   const dt = run.lastTs ? Math.min(0.1, (now - run.lastTs) / 1000) : 0.016;
@@ -1291,14 +1296,65 @@ function revealStep(run) {
   let rate = Math.min(REVEAL.max, Math.max(REVEAL.base, run.pending.length * REVEAL.gain));
   if (run.streamDone) rate = Math.min(REVEAL.finishMax, Math.max(rate, run.pending.length / REVEAL.finishSecs));
   run.revealAcc += rate * dt;
-  let n = Math.floor(run.revealAcc);
-  if (n < 1) return;
-  run.revealAcc -= n;
-  n = Math.min(n, run.pending.length);
-  const c = run.pending.charCodeAt(n - 1);
-  if (c >= 0xd800 && c <= 0xdbff && n < run.pending.length) n++;
-  run.text += run.pending.slice(0, n);
-  run.pending = run.pending.slice(n);
+  const budget = Math.floor(run.revealAcc);
+  if (budget < 1) return;
+  const p = run.pending;
+  // always end on a word boundary (never show half an Arabic word) and take the trailing spaces with it
+  let j = Math.min(budget, p.length);
+  while (j < p.length && !/\s/.test(p[j])) j++;
+  if (j >= p.length && !run.streamDone && p.length < 60) return; // the word is still arriving: wait
+  while (j < p.length && /\s/.test(p[j])) j++;
+  run.revealAcc -= j;
+  run.text += p.slice(0, j);
+  run.pending = p.slice(j);
+}
+
+/* new words fade in softly. The tail is re-rendered every frame, so each fading word is re-wrapped
+   with a negative animation-delay: the fade continues seamlessly instead of restarting. */
+function fadeTail(run) {
+  if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const root = run.node.tail;
+  const f = run.fade || (run.fade = { prev: 0, chunks: [] });
+  const now = performance.now();
+  const nodes = [];
+  let total = 0;
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let t = w.nextNode(); t; t = w.nextNode()) {
+    if (t.parentElement && t.parentElement.closest('pre')) continue; // code blocks appear as-is
+    nodes.push({ t, off: total, len: t.nodeValue.length });
+    total += t.nodeValue.length;
+  }
+  if (total < f.prev) { f.prev = total; f.chunks = []; }
+  if (total > f.prev) { f.chunks.push({ from: f.prev, to: total, t0: now }); f.prev = total; }
+  f.chunks = f.chunks.filter((c) => now - c.t0 < FADE_MS);
+  if (!f.chunks.length) return;
+  for (const { t, off, len } of nodes) {
+    const segs = [];
+    for (const c of f.chunks) {
+      const a = Math.max(c.from, off), b = Math.min(c.to, off + len);
+      if (a < b) segs.push([a - off, b - off, c.t0]);
+    }
+    if (!segs.length) continue;
+    const str = t.nodeValue, frag = document.createDocumentFragment();
+    let pos = 0;
+    for (const [a, b, t0] of segs) {
+      if (a > pos) frag.append(str.slice(pos, a));
+      const sp = document.createElement('span');
+      sp.className = 'fw';
+      sp.style.animationDelay = '-' + Math.round(now - t0) + 'ms';
+      sp.textContent = str.slice(a, b);
+      frag.append(sp);
+      pos = b;
+    }
+    if (pos < len) frag.append(str.slice(pos));
+    t.replaceWith(frag);
+  }
+}
+/* eases the page down behind the text instead of jumping a whole line at once */
+function followScroll() {
+  const d = distBottom();
+  if (d <= 1) return;
+  el.msgs.scrollTop += d > 500 ? d : Math.max(1, d * 0.18);
 }
 function flushPending(run) { if (run.pending) { run.text += run.pending; run.pending = ''; } }
 async function drainRun(run) {
