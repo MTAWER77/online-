@@ -12,6 +12,7 @@ const el = {
   attachBtn: $('#attachBtn'), attachMenu: $('#attachMenu'),
   fileInput: $('#fileInput'), imageInput: $('#imageInput'),
   attachmentTray: $('#attachmentTray'), searchToggle: $('#searchToggle'), thinkToggle: $('#thinkToggle'),
+  codeFixToggle: $('#codeFixToggle'),
 };
 
 const KEY = 'nova_ai_chats_v1';
@@ -27,6 +28,7 @@ const MAX_IMAGE_QUALITY = 0.82;
 const MODEL_STATE_KEY = 'nova_ai_model_state_v1';
 const SEARCH_KEY = 'nova_ai_search_enabled_v1';
 const THINK_KEY = 'nova_ai_think_enabled_v1';
+const CODE_FIX_KEY = 'nova_ai_code_fix_enabled_v1';
 const MAX_GENERATED_FILES = 20;
 
 const SUPPORTED_EXTENSIONS = [
@@ -40,6 +42,19 @@ let pendingFiles = [];
 const imageDataStore = new Map();
 let searchMode = localStorage.getItem(SEARCH_KEY) === '1';
 let thinkMode = localStorage.getItem(THINK_KEY) === '1';
+let codeFixMode = localStorage.getItem(CODE_FIX_KEY) === '1';
+if (el.codeFixToggle) {
+  el.codeFixToggle.classList.toggle('active', codeFixMode);
+  el.codeFixToggle.setAttribute('aria-pressed', String(codeFixMode));
+  el.codeFixToggle.addEventListener('click', () => {
+    codeFixMode = !codeFixMode;
+    localStorage.setItem(CODE_FIX_KEY, codeFixMode ? '1' : '0');
+    el.codeFixToggle.classList.toggle('active', codeFixMode);
+    el.codeFixToggle.setAttribute('aria-pressed', String(codeFixMode));
+    if (codeFixMode && el.searchToggle?.classList.contains('active')) el.searchToggle.click();
+    toast(codeFixMode ? 'تم تفعيل AI Code Fixer. ارفع ملف الكود واكتب المطلوب.' : 'تم إيقاف AI Code Fixer.');
+  });
+}
 if (el.searchToggle) {
   el.searchToggle.classList.toggle('active', searchMode);
   el.searchToggle.setAttribute('aria-pressed', String(searchMode));
@@ -287,7 +302,200 @@ function downloadZip(files) {
   downloadBlob(makeZip(files), 'nova-generated-project.zip');
 }
 
-function renderGeneratedFiles(files) {
+function splitCodeLines(value) {
+  return String(value ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+}
+
+// Line diff with a bounded LCS matrix; very large files safely fall back to one reviewable hunk.
+function buildCodeDiff(original, revised) {
+  const a = splitCodeLines(original);
+  const b = splitCodeLines(revised);
+  const n = a.length, m = b.length;
+  if (n === m && a.every((line, i) => line === b[i])) return { originalLines: a, hunks: [] };
+
+  const limit = 1800000;
+  let ops = [];
+  if ((n + 1) * (m + 1) > limit) {
+    return { originalLines: a, hunks: [{ oldStart: 0, oldLines: a.slice(), newLines: b.slice() }] };
+  }
+
+  const width = m + 1;
+  const dp = new Uint32Array((n + 1) * width);
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i * width + j] = a[i] === b[j]
+        ? dp[(i + 1) * width + j + 1] + 1
+        : Math.max(dp[(i + 1) * width + j], dp[i * width + j + 1]);
+    }
+  }
+
+  let i = 0, j = 0;
+  while (i < n || j < m) {
+    if (i < n && j < m && a[i] === b[j]) {
+      ops.push({ type: 'equal', line: a[i] }); i++; j++;
+    } else if (j < m && (i >= n || dp[i * width + j + 1] >= dp[(i + 1) * width + j])) {
+      ops.push({ type: 'add', line: b[j] }); j++;
+    } else {
+      ops.push({ type: 'del', line: a[i] }); i++;
+    }
+  }
+
+  const hunks = [];
+  let oldCursor = 0;
+  for (let k = 0; k < ops.length;) {
+    if (ops[k].type === 'equal') { oldCursor++; k++; continue; }
+    const hunk = { oldStart: oldCursor, oldLines: [], newLines: [] };
+    while (k < ops.length && ops[k].type !== 'equal') {
+      if (ops[k].type === 'del') { hunk.oldLines.push(ops[k].line); oldCursor++; }
+      else hunk.newLines.push(ops[k].line);
+      k++;
+    }
+    hunks.push(hunk);
+  }
+  return { originalLines: a, hunks };
+}
+
+function getReviewedContent(original, revised, hunks, accepted) {
+  const originalLines = splitCodeLines(original);
+  const out = [];
+  let cursor = 0;
+  hunks.forEach((hunk, index) => {
+    out.push(...originalLines.slice(cursor, hunk.oldStart));
+    out.push(...((accepted[index] !== false) ? hunk.newLines : hunk.oldLines));
+    cursor = hunk.oldStart + hunk.oldLines.length;
+  });
+  out.push(...originalLines.slice(cursor));
+  return out.join('\n');
+}
+
+function findOriginalFile(sourceFiles, generatedName) {
+  const target = safeFileName(generatedName).toLowerCase();
+  const base = target.split('/').pop();
+  const candidates = (sourceFiles || []).filter(f => f && f.kind === 'text' && typeof f.content === 'string');
+  return candidates.find(f => safeFileName(f.name).toLowerCase() === target)
+    || candidates.find(f => safeFileName(f.name).split('/').pop().toLowerCase() === base)
+    || null;
+}
+
+function renderDiffReview(file, sourceFiles) {
+  const originalFile = findOriginalFile(sourceFiles, file.name);
+  const original = originalFile ? originalFile.content : '';
+  const revised = String(file.content || '');
+  const diff = buildCodeDiff(original, revised);
+  const accepted = Array.isArray(file.acceptedHunks)
+    ? diff.hunks.map((_, i) => file.acceptedHunks[i] !== false)
+    : diff.hunks.map(() => true);
+  file.acceptedHunks = accepted;
+
+  const panel = mk('section', 'diff-review');
+  const top = mk('div', 'diff-review-top');
+  const summary = mk('div', 'diff-summary');
+  summary.textContent = originalFile
+    ? (diff.hunks.length ? `${diff.hunks.length} مجموعة تغييرات · الأصل محفوظ` : 'لا توجد تغييرات بين الملفين')
+    : 'ملف جديد · كل الأسطر إضافات';
+  const actions = mk('div', 'diff-toolbar');
+  const acceptAll = mk('button', 'diff-tool accept-all', 'اعتماد الكل');
+  const rejectAll = mk('button', 'diff-tool', 'رفض الكل');
+  acceptAll.type = rejectAll.type = 'button';
+  actions.append(acceptAll, rejectAll);
+  top.append(summary, actions);
+  panel.append(top);
+
+  if (!diff.hunks.length) {
+    const unchanged = mk('div', 'diff-empty', 'النسخة المقترحة مطابقة للأصل. يمكنك تنزيلها كما هي.');
+    panel.append(unchanged);
+  } else {
+    diff.hunks.forEach((hunk, index) => {
+      const card = mk('article', 'diff-hunk');
+      const head = mk('div', 'diff-hunk-head');
+      const label = mk('strong', '', `التغيير ${index + 1}`);
+      const state = mk('span', 'diff-hunk-state');
+      const controls = mk('div', 'diff-hunk-controls');
+      const accept = mk('button', 'diff-tool accept-one', 'قبول');
+      const reject = mk('button', 'diff-tool reject-one', 'رفض');
+      accept.type = reject.type = 'button';
+      controls.append(accept, reject);
+      head.append(label, state, controls);
+
+      const columns = mk('div', 'diff-columns');
+      const oldSide = mk('div', 'diff-side removed');
+      const newSide = mk('div', 'diff-side added');
+      const oldTitle = mk('div', 'diff-side-title', 'الأصل');
+      const newTitle = mk('div', 'diff-side-title', 'المقترح');
+      const oldCode = mk('pre', 'diff-code');
+      const newCode = mk('pre', 'diff-code');
+      oldCode.textContent = hunk.oldLines.length ? hunk.oldLines.join('\n') : '— لا توجد أسطر محذوفة —';
+      newCode.textContent = hunk.newLines.length ? hunk.newLines.join('\n') : '— لا توجد أسطر مضافة —';
+      oldSide.append(oldTitle, oldCode);
+      newSide.append(newTitle, newCode);
+      columns.append(oldSide, newSide);
+      card.append(head, columns);
+
+      const update = () => {
+        const on = file.acceptedHunks[index] !== false;
+        state.textContent = on ? 'مقبول في النسخة النهائية' : 'مرفوض · الأصل سيبقى';
+        state.classList.toggle('is-accepted', on);
+        state.classList.toggle('is-rejected', !on);
+        accept.classList.toggle('selected', on);
+        reject.classList.toggle('selected', !on);
+      };
+      accept.addEventListener('click', () => { file.acceptedHunks[index] = true; update(); refreshPreview(); save(); });
+      reject.addEventListener('click', () => { file.acceptedHunks[index] = false; update(); refreshPreview(); save(); });
+      update();
+      panel.append(card);
+    });
+  }
+
+  const previewWrap = mk('div', 'diff-final-wrap');
+  const previewHead = mk('div', 'diff-final-head');
+  const previewTitle = mk('strong', '', 'معاينة النسخة النهائية');
+  const previewToggle = mk('button', 'diff-tool', 'عرض المعاينة');
+  previewToggle.type = 'button';
+  previewHead.append(previewTitle, previewToggle);
+  const preview = mk('pre', 'diff-final-preview');
+  preview.hidden = true;
+  const footer = mk('div', 'diff-final-actions');
+  const downloadFinal = mk('button', 'diff-download', svg(IC.download, 15) + '<span>تحميل النسخة المعتمدة</span>');
+  downloadFinal.type = 'button';
+  footer.append(downloadFinal);
+  const finalText = () => getReviewedContent(original, revised, diff.hunks, file.acceptedHunks);
+  const refreshPreview = () => { preview.textContent = finalText(); };
+  previewToggle.addEventListener('click', () => {
+    preview.hidden = !preview.hidden;
+    previewToggle.textContent = preview.hidden ? 'عرض المعاينة' : 'إخفاء المعاينة';
+    if (!preview.hidden) refreshPreview();
+  });
+  downloadFinal.addEventListener('click', () => {
+    downloadOneFile({ name: file.name, content: finalText() });
+    toast('تم تجهيز النسخة التي اعتمدتها.');
+  });
+  acceptAll.addEventListener('click', () => {
+    file.acceptedHunks = diff.hunks.map(() => true);
+    panel.querySelectorAll('.diff-hunk').forEach((card, i) => {
+      const buttons = card.querySelectorAll('.diff-tool');
+      buttons[0]?.classList.add('selected'); buttons[1]?.classList.remove('selected');
+      const state = card.querySelector('.diff-hunk-state');
+      if (state) { state.textContent = 'مقبول في النسخة النهائية'; state.classList.add('is-accepted'); state.classList.remove('is-rejected'); }
+    });
+    refreshPreview(); save();
+  });
+  rejectAll.addEventListener('click', () => {
+    file.acceptedHunks = diff.hunks.map(() => false);
+    panel.querySelectorAll('.diff-hunk').forEach(card => {
+      const buttons = card.querySelectorAll('.diff-tool');
+      buttons[0]?.classList.remove('selected'); buttons[1]?.classList.add('selected');
+      const state = card.querySelector('.diff-hunk-state');
+      if (state) { state.textContent = 'مرفوض · الأصل سيبقى'; state.classList.remove('is-accepted'); state.classList.add('is-rejected'); }
+    });
+    refreshPreview(); save();
+  });
+  panel.append(previewWrap, footer);
+  previewWrap.append(previewHead, preview);
+  refreshPreview();
+  return panel;
+}
+
+function renderGeneratedFiles(files, sourceFiles = []) {
   if (!Array.isArray(files) || !files.length) return null;
 
   const wrap = mk('section', 'generated-files');
@@ -299,7 +507,7 @@ function renderGeneratedFiles(files) {
   wrap.append(heading);
 
   files.slice(0, MAX_GENERATED_FILES).forEach((file) => {
-    const item = mk('div', 'generated-file');
+    const item = mk('div', 'generated-file generated-file-reviewable');
     const info = mk('div', 'generated-file-info');
     const name = mk('strong', 'generated-file-name');
     name.textContent = safeFileName(file.name);
@@ -307,10 +515,24 @@ function renderGeneratedFiles(files) {
     size.textContent = formatSize(new Blob([String(file.content || '')]).size);
     info.append(name, size);
 
-    const button = mk('button', 'generated-download', svg(IC.download, 14) + '<span>تحميل</span>');
+    const controls = mk('div', 'generated-file-actions');
+    const button = mk('button', 'generated-download', svg(IC.download, 14) + '<span>تحميل الناتج</span>');
     button.type = 'button';
     button.addEventListener('click', () => downloadOneFile(file));
-    item.append(info, button);
+    const review = mk('button', 'generated-review', '<span>مراجعة التغييرات</span>');
+    review.type = 'button';
+    controls.append(button, review);
+    item.append(info, controls);
+
+    const existing = findOriginalFile(sourceFiles, file.name);
+    const panel = renderDiffReview(file, sourceFiles);
+    panel.hidden = true;
+    review.addEventListener('click', () => {
+      panel.hidden = !panel.hidden;
+      review.textContent = panel.hidden ? 'مراجعة التغييرات' : 'إخفاء المراجعة';
+      if (!panel.hidden) panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+    item.append(panel);
     wrap.append(item);
   });
 
@@ -496,7 +718,7 @@ function rowUser(message) {
   return r;
 }
 
-function rowAI(content, idx, isLast, files) {
+function rowAI(content, idx, isLast, files, sourceFiles = []) {
   const r = mk('div', 'row ai');
   r.dataset.idx = idx;
   r.innerHTML =
@@ -511,7 +733,7 @@ function rowAI(content, idx, isLast, files) {
       : '') +
     '</div></div>';
 
-  const generated = renderGeneratedFiles(files);
+  const generated = renderGeneratedFiles(files, sourceFiles);
   if (generated) r.querySelector('.ai-body').append(generated);
   return r;
 }
@@ -566,9 +788,12 @@ function renderMessages() {
 
   const last = chat.messages.length - 1;
   chat.messages.forEach((m, i) => {
-    el.msgs.append(m.role === 'user'
-      ? rowUser(m)
-      : rowAI(m.content, i, i === last, m.files));
+    if (m.role === 'user') {
+      el.msgs.append(rowUser(m));
+    } else {
+      const sourceMessage = chat.messages.slice(0, i).reverse().find(x => x.role === 'user' && Array.isArray(x.attachments));
+      el.msgs.append(rowAI(m.content, i, i === last, m.files, sourceMessage?.attachments || []));
+    }
   });
   scrollDown();
 }
@@ -683,8 +908,15 @@ async function submit(text) {
   if (busy) return;
   if (!text && pendingFiles.length === 0) return;
 
-  const chat = current() || newChat();
   const attachments = pendingFiles.map((f) => ({ ...f }));
+  if (codeFixMode) {
+    const codeFiles = attachments.filter(f => f.kind === 'text');
+    if (!codeFiles.length) { toast('ارفع ملف كود نصي أولًا لتشغيل AI Code Fixer.'); return; }
+    text = (text ? text + '\n\n' : '') +
+      'مهمة AI Code Fixer: حلّل ملفات الكود المرفقة، وحدد الأخطاء والمشاكل الفعلية، واشرح باختصار سببها وما الذي أصلحته. أنشئ ملفًا مصححًا كاملًا لكل ملف يحتاج تعديلًا، مع الحفاظ على أسماء الملفات وواجهات الدوال والسلوك الحالي قدر الإمكان. لا تخترع أخطاء ولا تغيّر أجزاء سليمة بلا داعٍ. إذا لم تجد مشكلة، وضّح ذلك وأعد الملف كما هو دون تغييرات حتى أستطيع تنزيل النسخة التي راجعتها. أعد الملفات الناتجة بصيغة ملفات قابلة للتنزيل.';
+  }
+
+  const chat = current() || newChat();
   pendingFiles = [];
   renderAttachments();
 
@@ -769,7 +1001,7 @@ function wantsFiles(text) {
 async function ask(chat) {
   if (busy) return;
   const lastMsg = chat.messages[chat.messages.length - 1];
-  if (lastMsg && lastMsg.role === 'user' && wantsFiles(lastMsg.content)) {
+  if (lastMsg && lastMsg.role === 'user' && (wantsFiles(lastMsg.content) || (codeFixMode && lastMsg.attachments?.some(a => a.kind === 'text')))) {
     return askGenerateFiles(chat);
   }
 
