@@ -47,3 +47,16 @@ const open = { GROQ_API_KEY: 'k' };
 r = await worker.fetch(new Request('https://x/api/chat', { method: 'POST', body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }) }), open);
 assert.equal(r.status, 200);
 console.log('AUTH TESTS PASSED');
+
+// admin must work even when the KV binding is missing, and tolerate stray whitespace in secrets
+{
+  const e2 = { SESSION_SECRET: 'y'.repeat(32), ADMIN_USERNAME: 'nova_owner ', ADMIN_PASSWORD: 'rv2HRKlCQ8JYsa\n', GROQ_API_KEY: 'k' };
+  const go = (path, body, cookie) => worker.fetch(new Request('https://x' + path, { method: body ? 'POST' : 'GET', headers: cookie ? { Cookie: cookie } : {}, body: body ? JSON.stringify(body) : undefined }), e2);
+  let r = await go('/api/login', { username: 'nova_owner', password: 'rv2HRKlCQ8JYsa' });
+  assert.equal(r.status, 200);
+  const c = (r.headers.get('set-cookie') || '').split(';')[0];
+  r = await go('/api/chat', { messages: [{ role: 'user', content: 'hi' }] }, c); assert.equal(r.status, 200); await r.text();
+  r = await go('/api/health'); const h = await r.json(); assert.equal(h.auth, true); assert.equal(h.authKv, false); assert.equal(h.adminConfigured, true);
+  r = await go('/api/register', { username: 'someone', password: '123456' }); assert.equal(r.status, 500);
+  console.log('ADMIN-WITHOUT-KV TESTS PASSED');
+}

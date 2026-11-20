@@ -692,6 +692,7 @@ const freeLimit = (env) => { const n = parseInt(env.FREE_LIMIT, 10); return Numb
 const normUser = (u) => String(u || "").trim().toLowerCase();
 const validUsername = (u) => /^[A-Za-z0-9_.\u0600-\u06FF-]{3,24}$/.test(u);
 const isAdminName = (env, u) => !!env.ADMIN_USERNAME && normUser(env.ADMIN_USERNAME) === normUser(u);
+const adminPass = (env) => String(env.ADMIN_PASSWORD || "").trim();
 
 const b64u = {
   enc: (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""),
@@ -744,6 +745,7 @@ const usageKey = (env, username) => {
 };
 
 async function getUsed(env, username) {
+  if (!env.AUTH) return 0;
   const v = await env.AUTH.get(usageKey(env, username));
   const n = parseInt(v || "0", 10);
   return Number.isFinite(n) ? n : 0;
@@ -759,18 +761,20 @@ async function accountState(env, session) {
 }
 
 async function failedTooMuch(env, username) {
+  if (!env.AUTH) return false;
   const n = parseInt((await env.AUTH.get("fail:" + normUser(username))) || "0", 10);
   return n >= MAX_FAILS;
 }
 async function noteFail(env, username) {
+  if (!env.AUTH) return;
   const k = "fail:" + normUser(username);
   const n = parseInt((await env.AUTH.get(k)) || "0", 10) + 1;
   await env.AUTH.put(k, String(n), { expirationTtl: FAIL_WINDOW_S });
 }
 
 async function handleAuth(request, env, path) {
+  if (path === "/api/me" && !authEnabled(env)) return json(await accountState(env, null), 200, { "Cache-Control": "no-store" });
   if (!authEnabled(env)) return json({ error: "نظام الحسابات غير مفعّل على الخادم.", code: "auth_disabled" }, 404);
-  if (!env.AUTH) return json({ error: "AUTH KV غير مربوط في wrangler.jsonc.", code: "no_kv" }, 500);
 
   if (path === "/api/me") {
     return json(await accountState(env, await readSession(request, env)), 200, { "Cache-Control": "no-store" });
@@ -790,7 +794,10 @@ async function handleAuth(request, env, path) {
     return json(state, 200, { "Set-Cookie": sessionCookie(await makeToken(env, name), SESSION_TTL_S), "Cache-Control": "no-store" });
   };
 
+  const needKv = () => json({ error: "التخزين (KV باسم AUTH) مش مربوط على الخادم، فمفيش حسابات عادية. الأدمن بس يقدر يدخل.", code: "no_kv" }, 500);
+
   if (path === "/api/register") {
+    if (!env.AUTH) return needKv();
     if (isAdminName(env, username)) return json({ error: "اسم المستخدم ده محجوز.", code: "taken" }, 409);
     const key = "user:" + normUser(username);
     if (await env.AUTH.get(key)) return json({ error: "اسم المستخدم ده مستخدم قبل كده.", code: "taken" }, 409);
@@ -803,10 +810,11 @@ async function handleAuth(request, env, path) {
   if (path === "/api/login") {
     if (await failedTooMuch(env, username)) return json({ error: "محاولات كتير غلط. جرّب بعد 15 دقيقة.", code: "locked" }, 429);
     if (isAdminName(env, username)) {
-      if (env.ADMIN_PASSWORD && safeEqual(password, env.ADMIN_PASSWORD)) return login(env.ADMIN_USERNAME);
+      if (adminPass(env) && safeEqual(password.trim(), adminPass(env))) return login(String(env.ADMIN_USERNAME).trim());
       await noteFail(env, username);
       return json({ error: "اسم المستخدم أو كلمة السر غلط.", code: "bad_credentials" }, 401);
     }
+    if (!env.AUTH) return needKv();
     const raw = await env.AUTH.get("user:" + normUser(username));
     const rec = raw ? JSON.parse(raw) : null;
     // Always run one PBKDF2 so response time does not reveal whether the user exists.
@@ -824,10 +832,10 @@ async function handleAuth(request, env, path) {
 // A normal account is charged one message here; the admin account is never counted.
 async function gateRequest(request, env) {
   if (!authEnabled(env)) return null;
-  if (!env.AUTH) return json({ error: "AUTH KV غير مربوط على الخادم.", code: "no_kv" }, 500);
   const session = await readSession(request, env);
   if (!session) return json({ error: "سجّل دخولك الأول عشان تستخدم NOVA AI.", code: "auth_required" }, 401);
   if (session.admin) return null;
+  if (!env.AUTH) return json({ error: "AUTH KV غير مربوط على الخادم.", code: "no_kv" }, 500);
   const limit = freeLimit(env);
   const used = await getUsed(env, session.username);
   if (used >= limit) {
@@ -851,7 +859,7 @@ export default {
         capabilities: { think: p.models.some((m) => !!modelCaps(p.id, m).reasoning), search: p.searchModels.length > 0, vision: p.visionModels.length > 0 },
       }));
       return json({
-        ok: true, version: "0.6", auth: authEnabled(env), primaryProvider: "groq", fallbackOrder: ["gemini", "openrouter"],
+        ok: true, version: "0.6", auth: authEnabled(env), authKv: !!env.AUTH, adminConfigured: !!(env.ADMIN_USERNAME && adminPass(env)), primaryProvider: "groq", fallbackOrder: ["gemini", "openrouter"],
         providers, maxImagesPerRequest: MAX_IMAGES,
         searchProvider: "Groq Browser Search (Groq keys required); other providers fall back to a no-search answer with a notice",
         note: "Provider/model availability and free-tier limits depend on each provider account.",

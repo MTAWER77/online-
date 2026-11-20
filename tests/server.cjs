@@ -5,6 +5,7 @@ const state = { log: [], mode: 'ok', failFirst: 0 };
 const srv = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x');
   if (u.pathname === '/__state') { let b = ''; req.on('data', d => b += d); req.on('end', () => { if (b) Object.assign(state, JSON.parse(b)); res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(state)); }); return; }
+  if (u.pathname === '/api/me') { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ authRequired: false, user: null, unlimited: true, remaining: null, limit: null })); return; }
   if (u.pathname === '/api/chat' || u.pathname === '/api/generate-files') {
     let b = ''; req.on('data', d => b += d); req.on('end', () => {
       const body = JSON.parse(b); state.log.push({ path: u.pathname, body });

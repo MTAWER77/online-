@@ -968,6 +968,11 @@ function rowAI(m, idx, isLast, sourceFiles) {
     m.notices.forEach((x) => { const d = mk('div', 'notice'); d.textContent = 'ℹ ' + x.text; n.append(d); });
     body.append(n);
   }
+  if (m.thinkSecs) {
+    const t = mk('div', 'took');
+    t.textContent = (m.thinkKind === 'search' ? 'بحث لمدة ' : 'فكّر لمدة ') + m.thinkSecs + ' ثانية';
+    body.append(t);
+  }
   const md = mk('div', 'md');
   md.innerHTML = R.md(m.content || '', COPY_HTML);
   body.append(md);
@@ -1108,16 +1113,25 @@ function statusLabel(run) {
 function attachRunNode(run) {
   const row = mk('div', 'row ai streaming');
   row.innerHTML =
-    '<div class="ai-body"><div class="think run-status"><i></i><i></i><i></i><span></span></div>' +
+    '<div class="ai-body"><div class="think run-status"><i class="orb"></i><span class="lbl"></span><em class="sec"></em></div>' +
     '<div class="run-notices"></div><div class="md"><div class="md-stable"></div><div class="md-tail"></div></div></div>';
   el.msgs.append(row);
   run.node = {
-    row, status: row.querySelector('.run-status'), label: row.querySelector('.run-status span'),
+    row, status: row.querySelector('.run-status'), label: row.querySelector('.run-status .lbl'), sec: row.querySelector('.run-status .sec'),
     notices: row.querySelector('.run-notices'), stable: row.querySelector('.md-stable'), tail: row.querySelector('.md-tail'),
   };
   run.stableLen = 0;
+  clearInterval(run.timer);
+  run.timer = setInterval(() => tickRun(run), 1000);
   paintNotices(run);
   paintRun(run);
+  tickRun(run);
+}
+
+function tickRun(run) {
+  if (!run.node || isStale(run)) { clearInterval(run.timer); return; }
+  const sec = Math.floor((Date.now() - run.t0) / 1000);
+  run.node.sec.textContent = sec >= 3 ? sec + 'ث' : '';
 }
 
 function paintNotices(run) {
@@ -1130,7 +1144,7 @@ function paintRun(run) {
   const n = run.node;
   if (!n || isStale(run)) return;
   n.label.textContent = statusLabel(run);
-  n.status.hidden = !!run.text;
+  n.status.classList.toggle('writing', !!run.text);
   if (!run.text) return;
   const stick = nearBottom();
   const b = stableBoundary(run.text);
@@ -1399,6 +1413,10 @@ function commitAssistant(chat, run, extra) {
   if (!canCommit(chat, run)) return false;
   const m = { id: uid(), role: 'assistant', content: run.text, at: Date.now(), ...extra };
   if (run.notices.length) m.notices = run.notices.slice();
+  if ((run.sawThinking || run.sawSearching) && run.firstTextAt) {
+    const secs = Math.round((run.firstTextAt - run.t0) / 1000);
+    if (secs >= 2) { m.thinkSecs = secs; m.thinkKind = run.sawThinking ? 'think' : 'search'; }
+  }
   chat.messages.push(m);
   chat.lastError = null;
   chat.updated = Date.now();
@@ -1407,6 +1425,7 @@ function commitAssistant(chat, run, extra) {
 }
 
 function endRun(chat, run) {
+  clearInterval(run.timer); run.timer = 0;
   if (run.raf) { cancelAnimationFrame(run.raf); run.raf = 0; }
   if (runs.get(chat.id) === run) runs.delete(chat.id);
   renderList();
@@ -1430,7 +1449,7 @@ async function ask(chat) {
   const kind = runModes.fix ? 'fix' : (wantsFiles(last.content) ? 'files' : 'chat');
   const run = {
     id: uid(), chatId: chat.id, userMsgId: last.id, kind, mode: kind, modes: runModes, ctrl: null, text: '', status: 'connecting',
-    notices: [], stopped: false, attempt: 1, node: null, raf: 0, stableLen: 0,
+    notices: [], stopped: false, attempt: 1, node: null, raf: 0, stableLen: 0, t0: Date.now(), firstTextAt: 0, sawThinking: false, sawSearching: false, timer: 0,
     fileCount: (last.attachments || []).length, projectFiles: 0,
   };
   runs.set(chat.id, run);
@@ -1521,10 +1540,12 @@ async function tryStream(chat, run, payload) {
       if (isStale(run)) return;
       if (ev.error) streamErr = ev;
       else if (typeof ev.t === 'string') {
-        if (!run.text) run.status = 'writing';
+        if (!run.text) { run.status = 'writing'; run.firstTextAt = Date.now(); }
         run.text += ev.t;
         schedulePaint(run);
       } else if (ev.status) {
+        if (ev.status === 'thinking') run.sawThinking = true;
+        if (ev.status === 'searching') run.sawSearching = true;
         if (!run.text) { run.status = ev.status; schedulePaint(run); }
       } else if (ev.notice) {
         if (!run.notices.some((n) => n.code === ev.notice)) { run.notices.push({ code: ev.notice, text: ev.text || '' }); paintNotices(run); }
