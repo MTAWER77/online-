@@ -1,0 +1,196 @@
+[gd_resource type="Resource" script_class="MotionTimeline" format=3]
+
+[ext_resource type="Script" path="res://addons/godotion/core/motion_marker.gd" id="1_ppk21"]
+[ext_resource type="Script" path="res://addons/godotion/core/motion_timeline.gd" id="2_nu1eu"]
+[ext_resource type="Script" path="res://addons/godotion/core/motion_track.gd" id="3_krffp"]
+[ext_resource type="Script" path="res://addons/godotion/core/motion_key.gd" id="4_rwhjm"]
+
+[sub_resource type="Resource" id="Resource_pjjo5"]
+script = ExtResource("1_ppk21")
+name = "Cards In"
+
+[sub_resource type="Resource" id="Resource_aombo"]
+script = ExtResource("1_ppk21")
+name = "Title In"
+time = 1.4
+color = Color(0.37254903, 0.69803923, 1, 1)
+
+[sub_resource type="Resource" id="Resource_5gw6y"]
+script = ExtResource("1_ppk21")
+name = "Settled"
+time = 2.2
+color = Color(0.33333334, 0.8392157, 0.627451, 1)
+
+[sub_resource type="Resource" id="Resource_qx4ip"]
+script = ExtResource("4_rwhjm")
+
+[sub_resource type="Resource" id="Resource_nidyq"]
+script = ExtResource("4_rwhjm")
+time = 0.8
+value = 1.0
+
+[sub_resource type="Resource" id="Resource_5j1at"]
+script = ExtResource("3_krffp")
+node_path = NodePath("Card1")
+property = "modulate:a"
+keys = Array[ExtResource("4_rwhjm")]([SubResource("Resource_qx4ip"), SubResource("Resource_nidyq")])
+
+[sub_resource type="Resource" id="Resource_ul6ih"]
+script = ExtResource("4_rwhjm")
+value = Vector2(0.6, 0.6)
+interp = 5
+out_handle = Vector2(0.175, 0.885)
+
+[sub_resource type="Resource" id="Resource_8s4ql"]
+script = ExtResource("4_rwhjm")
+time = 0.9
+value = Vector2(1, 1)
+in_handle = Vector2(-0.68, 0.28)
+
+[sub_resource type="Resource" id="Resource_vhpbj"]
+script = ExtResource("3_krffp")
+node_path = NodePath("Card1")
+property = "scale"
+keys = Array[ExtResource("4_rwhjm")]([SubResource("Resource_ul6ih"), SubResource("Resource_8s4ql")])
+
+[sub_resource type="Resource" id="Resource_bg6dy"]
+script = ExtResource("4_rwhjm")
+value = 300.0
+interp = 3
+
+[sub_resource type="Resource" id="Resource_8tggn"]
+script = ExtResource("4_rwhjm")
+time = 0.9
+value = 260.0
+
+[sub_resource type="Resource" id="Resource_1cb7v"]
+script = ExtResource("3_krffp")
+node_path = NodePath("Card1")
+property = "position:y"
+keys = Array[ExtResource("4_rwhjm")]([SubResource("Resource_bg6dy"), SubResource("Resource_8tggn")])
+
+[sub_resource type="Resource" id="Resource_m4pa3"]
+script = ExtResource("4_rwhjm")
+
+[sub_resource type="Resource" id="Resource_dhcv7"]
+script = ExtResource("4_rwhjm")
+time = 0.8
+value = 1.0
+
+[sub_resource type="Resource" id="Resource_peenl"]
+script = ExtResource("3_krffp")
+node_path = NodePath("Card2")
+property = "modulate:a"
+time_offset = 0.35
+keys = Array[ExtResource("4_rwhjm")]([SubResource("Resource_m4pa3"), SubResource("Resource_dhcv7")])
+
+[sub_resource type="Resource" id="Resource_l0kwn"]
+script = ExtResource("4_rwhjm")
+value = Vector2(0.6, 0.6)
+interp = 5
+out_handle = Vector2(0.175, 0.885)
+
+[sub_resource type="Resource" id="Resource_frgei"]
+script = ExtResource("4_rwhjm")
+time = 0.9
+value = Vector2(1, 1)
+in_handle = Vector2(-0.68, 0.28)
+
+[sub_resource type="Resource" id="Resource_qp0k8"]
+script = ExtResource("3_krffp")
+node_path = NodePath("Card2")
+property = "scale"
+time_offset = 0.35
+keys = Array[ExtResource("4_rwhjm")]([SubResource("Resource_l0kwn"), SubResource("Resource_frgei")])
+
+[sub_resource type="Resource" id="Resource_svxmw"]
+script = ExtResource("4_rwhjm")
+value = 300.0
+interp = 3
+
+[sub_resource type="Resource" id="Resource_dwml6"]
+script = ExtResource("4_rwhjm")
+time = 0.9
+value = 260.0
+
+[sub_resource type="Resource" id="Resource_8ax70"]
+script = ExtResource("3_krffp")
+node_path = NodePath("Card2")
+property = "position:y"
+time_offset = 0.35
+keys = Array[ExtResource("4_rwhjm")]([SubResource("Resource_svxmw"), SubResource("Resource_dwml6")])
+
+[sub_resource type="Resource" id="Resource_6rmr4"]
+script = ExtResource("4_rwhjm")
+
+[sub_resource type="Resource" id="Resource_oitau"]
+script = ExtResource("4_rwhjm")
+time = 0.8
+value = 1.0
+
+[sub_resource type="Resource" id="Resource_ushvd"]
+script = ExtResource("3_krffp")
+node_path = NodePath("Card3")
+property = "modulate:a"
+time_offset = 0.7
+keys = Array[ExtResource("4_rwhjm")]([SubResource("Resource_6rmr4"), SubResource("Resource_oitau")])
+
+[sub_resource type="Resource" id="Resource_qwxoo"]
+script = ExtResource("4_rwhjm")
+value = Vector2(0.6, 0.6)
+interp = 5
+out_handle = Vector2(0.175, 0.885)
+
+[sub_resource type="Resource" id="Resource_nagcj"]
+script = ExtResource("4_rwhjm")
+time = 0.9
+value = Vector2(1, 1)
+in_handle = Vector2(-0.68, 0.28)
+
+[sub_resource type="Resource" id="Resource_vcj5n"]
+script = ExtResource("3_krffp")
+node_path = NodePath("Card3")
+property = "scale"
+time_offset = 0.7
+keys = Array[ExtResource("4_rwhjm")]([SubResource("Resource_qwxoo"), SubResource("Resource_nagcj")])
+
+[sub_resource type="Resource" id="Resource_7mvlc"]
+script = ExtResource("4_rwhjm")
+value = 300.0
+interp = 3
+
+[sub_resource type="Resource" id="Resource_xd47w"]
+script = ExtResource("4_rwhjm")
+time = 0.9
+value = 260.0
+
+[sub_resource type="Resource" id="Resource_um3dk"]
+script = ExtResource("3_krffp")
+node_path = NodePath("Card3")
+property = "position:y"
+time_offset = 0.7
+keys = Array[ExtResource("4_rwhjm")]([SubResource("Resource_7mvlc"), SubResource("Resource_xd47w")])
+
+[sub_resource type="Resource" id="Resource_36d8n"]
+script = ExtResource("4_rwhjm")
+time = 1.4
+interp = 4
+
+[sub_resource type="Resource" id="Resource_2a4vv"]
+script = ExtResource("4_rwhjm")
+time = 2.2
+value = 1.0
+
+[sub_resource type="Resource" id="Resource_5kquv"]
+script = ExtResource("3_krffp")
+node_path = NodePath("Title")
+property = "modulate:a"
+keys = Array[ExtResource("4_rwhjm")]([SubResource("Resource_36d8n"), SubResource("Resource_2a4vv")])
+
+[resource]
+script = ExtResource("2_nu1eu")
+timeline_name = "Card Entrance"
+duration = 4.0
+loop_mode = 2
+tracks = Array[ExtResource("3_krffp")]([SubResource("Resource_5j1at"), SubResource("Resource_vhpbj"), SubResource("Resource_1cb7v"), SubResource("Resource_peenl"), SubResource("Resource_qp0k8"), SubResource("Resource_8ax70"), SubResource("Resource_ushvd"), SubResource("Resource_vcj5n"), SubResource("Resource_um3dk"), SubResource("Resource_5kquv")])
+markers = Array[ExtResource("1_ppk21")]([SubResource("Resource_pjjo5"), SubResource("Resource_aombo"), SubResource("Resource_5gw6y")])

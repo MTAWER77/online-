@@ -1,0 +1,115 @@
+[gd_scene load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://scripts/multiplayer/ui/player_sync_test.gd" id="1_script"]
+
+[sub_resource type="Environment" id="Env_1"]
+background_mode = 1
+background_color = Color(0.55, 0.7, 0.9, 1)
+ambient_light_source = 2
+ambient_light_color = Color(1, 1, 1, 1)
+ambient_light_energy = 0.6
+
+[sub_resource type="BoxShape3D" id="FloorShape_1"]
+size = Vector3(50, 1, 50)
+
+[sub_resource type="StandardMaterial3D" id="FloorMat_1"]
+albedo_color = Color(0.35, 0.55, 0.35, 1)
+
+[sub_resource type="BoxMesh" id="FloorMesh_1"]
+material = SubResource("FloorMat_1")
+size = Vector3(50, 1, 50)
+
+[node name="PlayerSyncTest" type="Node3D"]
+script = ExtResource("1_script")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Env_1")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+unique_name_in_owner = true
+shadow_enabled = true
+
+[node name="Camera" type="Camera3D" parent="."]
+unique_name_in_owner = true
+current = true
+
+[node name="Floor" type="StaticBody3D" parent="."]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Floor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+shape = SubResource("FloorShape_1")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Floor"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
+mesh = SubResource("FloorMesh_1")
+
+[node name="Players" type="Node3D" parent="."]
+unique_name_in_owner = true
+
+[node name="Hud" type="CanvasLayer" parent="."]
+
+[node name="Panel" type="PanelContainer" parent="Hud"]
+offset_left = 10.0
+offset_top = 10.0
+offset_right = 470.0
+offset_bottom = 120.0
+
+[node name="Margin" type="MarginContainer" parent="Hud/Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 10
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 10
+theme_override_constants/margin_bottom = 10
+
+[node name="VBox" type="VBoxContainer" parent="Hud/Panel/Margin"]
+layout_mode = 2
+
+[node name="AddressRow" type="HBoxContainer" parent="Hud/Panel/Margin/VBox"]
+layout_mode = 2
+
+[node name="IpEdit" type="LineEdit" parent="Hud/Panel/Margin/VBox/AddressRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="PortEdit" type="LineEdit" parent="Hud/Panel/Margin/VBox/AddressRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(90, 0)
+layout_mode = 2
+
+[node name="ButtonRow" type="HBoxContainer" parent="Hud/Panel/Margin/VBox"]
+layout_mode = 2
+
+[node name="HostButton" type="Button" parent="Hud/Panel/Margin/VBox/ButtonRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Create Host"
+
+[node name="JoinButton" type="Button" parent="Hud/Panel/Margin/VBox/ButtonRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Join Server"
+
+[node name="DisconnectButton" type="Button" parent="Hud/Panel/Margin/VBox/ButtonRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Disconnect"
+
+[node name="StatusLabel" type="Label" parent="Hud/Panel/Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Status"
+autowrap_mode = 3
+
+[node name="InfoLabel" type="Label" parent="Hud/Panel/Margin/VBox"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Info"
+
+[node name="HelpLabel" type="Label" parent="Hud/Panel/Margin/VBox"]
+layout_mode = 2
+text = "WASD/Arrows: move | Space: jump | T: debug cheat (+80m)"
+autowrap_mode = 3

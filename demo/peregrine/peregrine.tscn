@@ -1,0 +1,613 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://demo/peregrine/scripts/species_stat_card.gd" id="1_rjmfm"]
+[ext_resource type="Resource" path="res://demo/peregrine/peregrine_card.tres" id="2_mkfmq"]
+[ext_resource type="Script" path="res://demo/peregrine/scripts/backdrop.gd" id="3_1xmes"]
+[ext_resource type="Shader" path="res://demo/peregrine/shaders/image_grade.gdshader" id="4_4mkfm"]
+[ext_resource type="Texture2D" path="res://demo/peregrine/assets/images/peregrine-falcon.jpg" id="5_7p8vy"]
+[ext_resource type="Shader" path="res://demo/peregrine/shaders/background_overlay.gdshader" id="6_ah2w8"]
+[ext_resource type="Script" path="res://demo/peregrine/scripts/badge.gd" id="7_ywnnq"]
+[ext_resource type="FontFile" path="res://demo/peregrine/assets/fonts/ibm-plex-mono-latin-500-normal.woff2" id="8_ih724"]
+[ext_resource type="Script" path="res://demo/peregrine/scripts/hero_title.gd" id="9_ckej0"]
+[ext_resource type="FontFile" path="res://demo/peregrine/assets/fonts/barlow-condensed-latin-800-normal.woff2" id="10_231md"]
+[ext_resource type="FontFile" path="res://demo/peregrine/assets/fonts/cormorant-garamond-latin-500-italic.woff2" id="11_70fjg"]
+[ext_resource type="Script" path="res://demo/peregrine/scripts/stat_panel.gd" id="12_jr7wd"]
+[ext_resource type="Shader" path="res://demo/peregrine/shaders/glassmorphism.gdshader" id="13_m0xhf"]
+[ext_resource type="Script" path="res://demo/peregrine/scripts/radar_reticle.gd" id="14_cij3h"]
+[ext_resource type="FontFile" path="res://demo/peregrine/assets/fonts/barlow-condensed-latin-700-normal.woff2" id="15_6n585"]
+[ext_resource type="Script" path="res://demo/peregrine/scripts/stat_row.gd" id="16_24l8r"]
+[ext_resource type="Shader" path="res://demo/peregrine/shaders/progress_bar.gdshader" id="17_7cs13"]
+[ext_resource type="Script" path="res://demo/peregrine/scripts/footer_meta.gd" id="18_hd8w3"]
+[ext_resource type="AudioStream" path="res://demo/peregrine/assets/audio/ambient-air.wav" id="19_8vmt1"]
+[ext_resource type="AudioStream" path="res://demo/peregrine/assets/audio/digital-beeping-1.wav" id="20_37ux7"]
+[ext_resource type="AudioStream" path="res://demo/peregrine/assets/audio/digital-beeping-2.wav" id="21_7ick4"]
+[ext_resource type="AudioStream" path="res://demo/peregrine/assets/audio/outro-breath.wav" id="22_w258i"]
+[ext_resource type="AudioStream" path="res://demo/peregrine/assets/audio/digital-beeping-3.wav" id="23_kt642"]
+[ext_resource type="Script" path="res://addons/godotion/core/motion_player.gd" id="24_gb6ts"]
+[ext_resource type="Resource" path="res://demo/peregrine/peregrine_timeline.tres" id="25_jl4ug"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_ch2s8"]
+shader = ExtResource("4_4mkfm")
+shader_parameter/saturate_amount = 0.75
+shader_parameter/contrast_amount = 1.06
+shader_parameter/brightness_amount = 0.8
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_2pcty"]
+shader = ExtResource("6_ah2w8")
+shader_parameter/base_color = Color(0.06666667, 0.07450981, 0.08235294, 1)
+shader_parameter/sky_color = Color(0.5294118, 0.80784315, 0.92156863, 1)
+shader_parameter/scrim_left = null
+shader_parameter/scrim_mid = null
+shader_parameter/scrim_mid_stop = null
+shader_parameter/scrim_fade = null
+shader_parameter/scrim_fade_stop = null
+shader_parameter/scrim_right = null
+shader_parameter/vignette_top = null
+shader_parameter/vignette_clear_stop = null
+shader_parameter/vignette_bottom = null
+shader_parameter/glow_center = null
+shader_parameter/glow_radius = null
+shader_parameter/glow_strength = null
+shader_parameter/glow_opacity = null
+shader_parameter/aspect = null
+
+[sub_resource type="FontVariation" id="FontVariation_r4iqi"]
+base_font = ExtResource("8_ih724")
+spacing_glyph = 3
+
+[sub_resource type="FontVariation" id="FontVariation_lm0sk"]
+base_font = ExtResource("10_231md")
+spacing_glyph = -6
+
+[sub_resource type="FontVariation" id="FontVariation_qorj2"]
+base_font = ExtResource("11_70fjg")
+spacing_glyph = 1
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_x2sed"]
+shader = ExtResource("13_m0xhf")
+shader_parameter/panel_color = Color(0.08235294, 0.09803922, 0.105882354, 0.78)
+shader_parameter/border_color = Color(0.5294118, 0.80784315, 0.92156863, 0.26)
+shader_parameter/corner_radius = 34.0
+shader_parameter/border_width = null
+shader_parameter/highlight_strength = null
+shader_parameter/panel_size = Vector2(675, 770)
+
+[sub_resource type="FontVariation" id="FontVariation_1gyjt"]
+base_font = ExtResource("8_ih724")
+spacing_glyph = 3
+
+[sub_resource type="FontVariation" id="FontVariation_s4qt3"]
+base_font = ExtResource("15_6n585")
+spacing_glyph = -1
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_ddqko"]
+bg_color = Color(1, 0.43529412, 0.2627451, 0.1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(1, 0.43529412, 0.2627451, 0.38)
+corner_radius_top_left = 29
+corner_radius_top_right = 29
+corner_radius_bottom_right = 29
+corner_radius_bottom_left = 29
+
+[sub_resource type="FontVariation" id="FontVariation_0e4go"]
+base_font = ExtResource("8_ih724")
+
+[sub_resource type="FontVariation" id="FontVariation_h6q72"]
+base_font = ExtResource("15_6n585")
+spacing_glyph = 2
+
+[sub_resource type="FontVariation" id="FontVariation_6ct7h"]
+base_font = ExtResource("8_ih724")
+spacing_glyph = -1
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_a5me4"]
+shader = ExtResource("17_7cs13")
+shader_parameter/fill_amount = null
+shader_parameter/color_start = null
+shader_parameter/color_mid = null
+shader_parameter/color_end = null
+shader_parameter/track_color = null
+shader_parameter/cap_width = null
+shader_parameter/cap_strength = null
+shader_parameter/bar_height = null
+shader_parameter/bar_width = null
+
+[sub_resource type="FontVariation" id="FontVariation_bs0f7"]
+base_font = ExtResource("15_6n585")
+spacing_glyph = 2
+
+[sub_resource type="FontVariation" id="FontVariation_8n1ng"]
+base_font = ExtResource("8_ih724")
+spacing_glyph = -1
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_x4uxk"]
+shader = ExtResource("17_7cs13")
+shader_parameter/fill_amount = null
+shader_parameter/color_start = null
+shader_parameter/color_mid = null
+shader_parameter/color_end = null
+shader_parameter/track_color = null
+shader_parameter/cap_width = null
+shader_parameter/cap_strength = null
+shader_parameter/bar_height = null
+shader_parameter/bar_width = null
+
+[sub_resource type="FontVariation" id="FontVariation_7l5re"]
+base_font = ExtResource("15_6n585")
+spacing_glyph = 2
+
+[sub_resource type="FontVariation" id="FontVariation_dpv57"]
+base_font = ExtResource("8_ih724")
+spacing_glyph = -1
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_cjthm"]
+shader = ExtResource("17_7cs13")
+shader_parameter/fill_amount = null
+shader_parameter/color_start = null
+shader_parameter/color_mid = null
+shader_parameter/color_end = null
+shader_parameter/track_color = null
+shader_parameter/cap_width = null
+shader_parameter/cap_strength = null
+shader_parameter/bar_height = null
+shader_parameter/bar_width = null
+
+[sub_resource type="FontVariation" id="FontVariation_1ikn2"]
+base_font = ExtResource("15_6n585")
+spacing_glyph = 2
+
+[sub_resource type="FontVariation" id="FontVariation_0bwwa"]
+base_font = ExtResource("8_ih724")
+spacing_glyph = -1
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_nx43v"]
+shader = ExtResource("17_7cs13")
+shader_parameter/fill_amount = null
+shader_parameter/color_start = null
+shader_parameter/color_mid = null
+shader_parameter/color_end = null
+shader_parameter/track_color = null
+shader_parameter/cap_width = null
+shader_parameter/cap_strength = null
+shader_parameter/bar_height = null
+shader_parameter/bar_width = null
+
+[sub_resource type="FontVariation" id="FontVariation_kq4t5"]
+base_font = ExtResource("8_ih724")
+spacing_glyph = 2
+
+[sub_resource type="FontVariation" id="FontVariation_xf1ru"]
+base_font = ExtResource("8_ih724")
+spacing_glyph = 1
+
+[sub_resource type="FontVariation" id="FontVariation_5exo7"]
+base_font = ExtResource("8_ih724")
+spacing_glyph = 2
+
+[node name="PeregrineCard" type="Control" unique_id=945776766]
+layout_mode = 3
+anchors_preset = 0
+offset_right = 1920.0
+offset_bottom = 1080.0
+script = ExtResource("1_rjmfm")
+card_data = ExtResource("2_mkfmq")
+
+[node name="Backdrop" type="Control" parent="." unique_id=37682369]
+anchors_preset = 0
+offset_right = 1920.0
+offset_bottom = 1080.0
+mouse_filter = 2
+script = ExtResource("3_1xmes")
+
+[node name="Photo" type="TextureRect" parent="Backdrop" unique_id=1817875237]
+material = SubResource("ShaderMaterial_ch2s8")
+layout_mode = 0
+offset_right = 1920.0
+offset_bottom = 1080.0
+pivot_offset = Vector2(998.4, 464.4)
+mouse_filter = 2
+texture = ExtResource("5_7p8vy")
+expand_mode = 1
+stretch_mode = 6
+
+[node name="Scrim" type="ColorRect" parent="Backdrop" unique_id=1195519859]
+material = SubResource("ShaderMaterial_2pcty")
+layout_mode = 0
+offset_right = 1920.0
+offset_bottom = 1080.0
+mouse_filter = 2
+
+[node name="GuideLine" type="ColorRect" parent="Backdrop" unique_id=607629181]
+layout_mode = 0
+offset_left = 92.0
+offset_right = 93.0
+offset_bottom = 1080.0
+mouse_filter = 2
+color = Color(0.5294118, 0.80784315, 0.92156863, 0.16)
+
+[node name="LeftColumn" type="Control" parent="." unique_id=403398906]
+anchors_preset = 0
+offset_left = 128.0
+offset_top = 152.0
+offset_right = 948.0
+offset_bottom = 752.0
+mouse_filter = 2
+
+[node name="Badge" type="Control" parent="LeftColumn" unique_id=1968847330]
+modulate = Color(1, 1, 1, 0)
+anchors_preset = 0
+offset_right = 300.0
+offset_bottom = 46.0
+script = ExtResource("7_ywnnq")
+
+[node name="Text" type="Label" parent="LeftColumn/Badge" unique_id=195432132]
+layout_mode = 0
+offset_left = 52.0
+offset_top = 11.0
+offset_right = 52.0
+offset_bottom = 11.0
+theme_override_fonts/font = SubResource("FontVariation_r4iqi")
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.9137255, 0.96862745, 1, 1)
+text = "SPECIES UNLOCKED"
+
+[node name="HeroTitle" type="Control" parent="LeftColumn" unique_id=209911747]
+modulate = Color(1, 1, 1, 0)
+anchors_preset = 0
+offset_top = 86.0
+offset_right = 820.0
+offset_bottom = 486.0
+script = ExtResource("9_ckej0")
+
+[node name="CommonName" type="Label" parent="LeftColumn/HeroTitle" unique_id=345117879]
+layout_mode = 0
+offset_top = 35.0
+offset_right = 820.0
+offset_bottom = 237.0
+theme_override_constants/line_spacing = -27
+theme_override_fonts/font = SubResource("FontVariation_lm0sk")
+theme_override_font_sizes/font_size = 128
+theme_override_colors/font_color = Color(0.95686275, 0.9490196, 0.92941177, 1)
+text = "PEREGRINE FALCON"
+autowrap_mode = 2
+
+[node name="ScientificName" type="Label" parent="LeftColumn/HeroTitle" unique_id=309013318]
+layout_mode = 0
+offset_top = 168.0
+offset_right = 820.0
+offset_bottom = 230.4
+theme_override_fonts/font = SubResource("FontVariation_qorj2")
+theme_override_font_sizes/font_size = 48
+theme_override_colors/font_color = Color(0.84705883, 0.8509804, 0.84313726, 1)
+text = "Falco peregrinus"
+
+[node name="StatPanel" type="Control" parent="." unique_id=536161798]
+modulate = Color(1, 1, 1, 0)
+clip_contents = true
+anchors_preset = 0
+offset_left = 1139.0
+offset_top = 154.0
+offset_right = 1814.0
+offset_bottom = 924.0
+mouse_filter = 2
+script = ExtResource("12_jr7wd")
+
+[node name="Glass" type="ColorRect" parent="StatPanel" unique_id=1056452853]
+material = SubResource("ShaderMaterial_x2sed")
+layout_mode = 0
+offset_right = 675.0
+offset_bottom = 770.0
+mouse_filter = 2
+
+[node name="RadarReticle" type="Control" parent="StatPanel" unique_id=1594444437]
+modulate = Color(1, 1, 1, 0)
+anchors_preset = 0
+offset_left = 195.0
+offset_top = 390.0
+offset_right = 795.0
+offset_bottom = 990.0
+mouse_filter = 2
+script = ExtResource("14_cij3h")
+
+[node name="Content" type="Control" parent="StatPanel" unique_id=597419251]
+anchors_preset = 0
+offset_left = 64.0
+offset_top = 58.0
+offset_right = 611.0
+offset_bottom = 712.0
+mouse_filter = 2
+
+[node name="Eyebrow" type="Label" parent="StatPanel/Content" unique_id=384876583]
+layout_mode = 0
+theme_override_fonts/font = SubResource("FontVariation_1gyjt")
+theme_override_font_sizes/font_size = 16
+theme_override_colors/font_color = Color(0.5294118, 0.80784315, 0.92156863, 0.85)
+text = "FLIGHT PERFORMANCE"
+
+[node name="Heading" type="Label" parent="StatPanel/Content" unique_id=994409063]
+layout_mode = 0
+offset_top = 32.0
+offset_bottom = 32.0
+theme_override_fonts/font = SubResource("FontVariation_s4qt3")
+theme_override_font_sizes/font_size = 54
+theme_override_colors/font_color = Color(0.95686275, 0.9490196, 0.92941177, 1)
+text = "APEX PROFILE"
+
+[node name="Monogram" type="Panel" parent="StatPanel/Content" unique_id=1906295670]
+layout_mode = 0
+offset_left = 489.0
+offset_right = 547.0
+offset_bottom = 58.0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_ddqko")
+
+[node name="Text" type="Label" parent="StatPanel/Content/Monogram" unique_id=605770864]
+layout_mode = 0
+offset_top = 19.0
+offset_right = 58.0
+offset_bottom = 42.0
+theme_override_fonts/font = SubResource("FontVariation_0e4go")
+theme_override_font_sizes/font_size = 17
+theme_override_colors/font_color = Color(1, 0.8235294, 0.77254903, 1)
+text = "FP"
+horizontal_alignment = 1
+
+[node name="Stats" type="Control" parent="StatPanel/Content" unique_id=1941724415]
+anchors_preset = 0
+offset_top = 134.0
+offset_right = 547.0
+offset_bottom = 534.0
+mouse_filter = 2
+
+[node name="StatRow1" type="Control" parent="StatPanel/Content/Stats" unique_id=2087399637]
+modulate = Color(1, 1, 1, 0)
+anchors_preset = 0
+offset_right = 547.0
+offset_bottom = 55.0
+mouse_filter = 2
+script = ExtResource("16_24l8r")
+
+[node name="Label" type="Label" parent="StatPanel/Content/Stats/StatRow1" unique_id=1705838566]
+layout_mode = 0
+theme_override_fonts/font = SubResource("FontVariation_h6q72")
+theme_override_font_sizes/font_size = 28
+theme_override_colors/font_color = Color(0.9098039, 0.9137255, 0.90588236, 1)
+text = "TOP DIVING SPEED"
+
+[node name="Value" type="Label" parent="StatPanel/Content/Stats/StatRow1" unique_id=967350528]
+layout_mode = 0
+offset_right = 547.0
+offset_bottom = 32.5
+theme_override_fonts/font = SubResource("FontVariation_6ct7h")
+theme_override_font_sizes/font_size = 25
+theme_override_colors/font_color = Color(0.7490196, 0.91764706, 1, 1)
+text = "389 km/h"
+horizontal_alignment = 2
+
+[node name="Bar" type="ColorRect" parent="StatPanel/Content/Stats/StatRow1" unique_id=514327498]
+material = SubResource("ShaderMaterial_a5me4")
+layout_mode = 0
+offset_top = 46.0
+offset_right = 547.0
+offset_bottom = 55.0
+mouse_filter = 2
+
+[node name="StatRow2" type="Control" parent="StatPanel/Content/Stats" unique_id=1824960793]
+modulate = Color(1, 1, 1, 0)
+anchors_preset = 0
+offset_top = 100.0
+offset_right = 547.0
+offset_bottom = 155.0
+mouse_filter = 2
+script = ExtResource("16_24l8r")
+label_text = "Visual acuity"
+value_text = "8× human"
+
+[node name="Label" type="Label" parent="StatPanel/Content/Stats/StatRow2" unique_id=1854818180]
+layout_mode = 0
+theme_override_fonts/font = SubResource("FontVariation_bs0f7")
+theme_override_font_sizes/font_size = 28
+theme_override_colors/font_color = Color(0.9098039, 0.9137255, 0.90588236, 1)
+text = "VISUAL ACUITY"
+
+[node name="Value" type="Label" parent="StatPanel/Content/Stats/StatRow2" unique_id=568914852]
+layout_mode = 0
+offset_right = 547.0
+offset_bottom = 32.5
+theme_override_fonts/font = SubResource("FontVariation_8n1ng")
+theme_override_font_sizes/font_size = 25
+theme_override_colors/font_color = Color(0.7490196, 0.91764706, 1, 1)
+text = "8× human"
+horizontal_alignment = 2
+
+[node name="Bar" type="ColorRect" parent="StatPanel/Content/Stats/StatRow2" unique_id=636948932]
+material = SubResource("ShaderMaterial_x4uxk")
+layout_mode = 0
+offset_top = 46.0
+offset_right = 547.0
+offset_bottom = 55.0
+mouse_filter = 2
+
+[node name="StatRow3" type="Control" parent="StatPanel/Content/Stats" unique_id=100774689]
+modulate = Color(1, 1, 1, 0)
+anchors_preset = 0
+offset_top = 200.0
+offset_right = 547.0
+offset_bottom = 255.0
+mouse_filter = 2
+script = ExtResource("16_24l8r")
+label_text = "Aerial agility"
+value_text = "94 / 100"
+
+[node name="Label" type="Label" parent="StatPanel/Content/Stats/StatRow3" unique_id=1269014033]
+layout_mode = 0
+theme_override_fonts/font = SubResource("FontVariation_7l5re")
+theme_override_font_sizes/font_size = 28
+theme_override_colors/font_color = Color(0.9098039, 0.9137255, 0.90588236, 1)
+text = "AERIAL AGILITY"
+
+[node name="Value" type="Label" parent="StatPanel/Content/Stats/StatRow3" unique_id=661475464]
+layout_mode = 0
+offset_right = 547.0
+offset_bottom = 32.5
+theme_override_fonts/font = SubResource("FontVariation_dpv57")
+theme_override_font_sizes/font_size = 25
+theme_override_colors/font_color = Color(0.7490196, 0.91764706, 1, 1)
+text = "94 / 100"
+horizontal_alignment = 2
+
+[node name="Bar" type="ColorRect" parent="StatPanel/Content/Stats/StatRow3" unique_id=752205345]
+material = SubResource("ShaderMaterial_cjthm")
+layout_mode = 0
+offset_top = 46.0
+offset_right = 547.0
+offset_bottom = 55.0
+mouse_filter = 2
+
+[node name="StatRow4" type="Control" parent="StatPanel/Content/Stats" unique_id=365802747]
+modulate = Color(1, 1, 1, 0)
+anchors_preset = 0
+offset_top = 300.0
+offset_right = 547.0
+offset_bottom = 355.0
+mouse_filter = 2
+script = ExtResource("16_24l8r")
+label_text = "Hunting efficiency"
+value_text = "47%"
+
+[node name="Label" type="Label" parent="StatPanel/Content/Stats/StatRow4" unique_id=1919748170]
+layout_mode = 0
+theme_override_fonts/font = SubResource("FontVariation_1ikn2")
+theme_override_font_sizes/font_size = 28
+theme_override_colors/font_color = Color(0.9098039, 0.9137255, 0.90588236, 1)
+text = "HUNTING EFFICIENCY"
+
+[node name="Value" type="Label" parent="StatPanel/Content/Stats/StatRow4" unique_id=373227894]
+layout_mode = 0
+offset_right = 547.0
+offset_bottom = 32.5
+theme_override_fonts/font = SubResource("FontVariation_0bwwa")
+theme_override_font_sizes/font_size = 25
+theme_override_colors/font_color = Color(0.7490196, 0.91764706, 1, 1)
+text = "47%"
+horizontal_alignment = 2
+
+[node name="Bar" type="ColorRect" parent="StatPanel/Content/Stats/StatRow4" unique_id=1600809213]
+material = SubResource("ShaderMaterial_nx43v")
+layout_mode = 0
+offset_top = 46.0
+offset_right = 547.0
+offset_bottom = 55.0
+mouse_filter = 2
+
+[node name="Divider" type="ColorRect" parent="StatPanel/Content" unique_id=880056143]
+layout_mode = 0
+offset_top = 544.0
+offset_right = 547.0
+offset_bottom = 545.0
+mouse_filter = 2
+color = Color(1, 1, 1, 0.12)
+
+[node name="IndexLabel" type="Label" parent="StatPanel/Content" unique_id=1878483950]
+layout_mode = 0
+offset_top = 573.0
+offset_bottom = 573.0
+theme_override_fonts/font = SubResource("FontVariation_kq4t5")
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(0.654902, 0.6666667, 0.6745098, 1)
+text = "BIOMETRIC FIELD INDEX"
+
+[node name="IndexCode" type="Label" parent="StatPanel/Content" unique_id=1363409836]
+layout_mode = 0
+offset_top = 573.0
+offset_right = 547.0
+offset_bottom = 596.0
+theme_override_fonts/font = SubResource("FontVariation_xf1ru")
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(0.5294118, 0.80784315, 0.92156863, 0.85)
+text = "FAL-PER · 001"
+horizontal_alignment = 2
+
+[node name="FooterMeta" type="Control" parent="." unique_id=1167323773]
+anchors_preset = 0
+offset_left = 128.0
+offset_top = 1006.0
+offset_right = 1810.0
+offset_bottom = 1028.0
+mouse_filter = 2
+script = ExtResource("18_hd8w3")
+
+[node name="Left" type="Label" parent="FooterMeta" unique_id=220053603]
+layout_mode = 0
+offset_right = 1.0
+offset_bottom = 23.0
+theme_override_fonts/font = SubResource("FontVariation_5exo7")
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(0.7176471, 0.7254902, 0.7294118, 0.7)
+text = "ORDER FALCONIFORMES"
+
+[node name="Right" type="Label" parent="FooterMeta" unique_id=1249226111]
+layout_mode = 0
+offset_left = 41.0
+offset_right = 42.0
+offset_bottom = 23.0
+theme_override_fonts/font = SubResource("FontVariation_5exo7")
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(0.7176471, 0.7254902, 0.7294118, 0.7)
+text = "GLOBAL RANGE"
+
+[node name="Corner" type="Label" parent="FooterMeta" unique_id=1847570439]
+layout_mode = 0
+offset_right = 1682.0
+offset_bottom = 23.0
+theme_override_fonts/font = SubResource("FontVariation_5exo7")
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(1, 1, 1, 0.45)
+text = "09.00 SEC / FIELD STUDY"
+horizontal_alignment = 2
+
+[node name="Audio" type="Node" parent="." unique_id=60443864]
+
+[node name="Ambient" type="AudioStreamPlayer" parent="Audio" unique_id=1465664494]
+stream = ExtResource("19_8vmt1")
+volume_db = -16.478174
+
+[node name="Badge" type="AudioStreamPlayer" parent="Audio" unique_id=1734210550]
+stream = ExtResource("20_37ux7")
+volume_db = -2.8533502
+
+[node name="Title" type="AudioStreamPlayer" parent="Audio" unique_id=1366041773]
+stream = ExtResource("21_7ick4")
+volume_db = -3.3498218
+
+[node name="Panel" type="AudioStreamPlayer" parent="Audio" unique_id=1758586448]
+stream = ExtResource("21_7ick4")
+volume_db = -2.8533502
+
+[node name="Outro" type="AudioStreamPlayer" parent="Audio" unique_id=1560066912]
+stream = ExtResource("22_w258i")
+volume_db = -5.0362396
+
+[node name="Stat1" type="AudioStreamPlayer" parent="Audio" unique_id=1336426487]
+stream = ExtResource("23_kt642")
+volume_db = -3.3498218
+
+[node name="Stat2" type="AudioStreamPlayer" parent="Audio" unique_id=945165580]
+stream = ExtResource("23_kt642")
+volume_db = -3.3498218
+
+[node name="Stat3" type="AudioStreamPlayer" parent="Audio" unique_id=596516546]
+stream = ExtResource("23_kt642")
+volume_db = -3.3498218
+
+[node name="Stat4" type="AudioStreamPlayer" parent="Audio" unique_id=1355691396]
+stream = ExtResource("23_kt642")
+volume_db = -3.3498218
+
+[node name="MotionPlayer" type="Node" parent="." unique_id=316713801]
+script = ExtResource("24_gb6ts")
+timeline = ExtResource("25_jl4ug")
+autoplay = true

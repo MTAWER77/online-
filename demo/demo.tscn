@@ -1,0 +1,54 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://addons/godotion/core/motion_player.gd" id="1_ytiva"]
+[ext_resource type="Resource" path="res://demo/demo_timeline.tres" id="2_dar0o"]
+
+[node name="Demo" type="Node2D" unique_id=331965140]
+
+[node name="Background" type="ColorRect" parent="." unique_id=754019877]
+offset_right = 1152.0
+offset_bottom = 648.0
+color = Color(0.078431375, 0.09411765, 0.12156863, 1)
+
+[node name="Title" type="Label" parent="." unique_id=317917878]
+modulate = Color(1, 1, 1, 0)
+offset_left = 80.0
+offset_top = 96.0
+offset_right = 600.0
+offset_bottom = 150.0
+text = "Godotion"
+
+[node name="Card1" type="ColorRect" parent="." unique_id=126637523]
+modulate = Color(1, 1, 1, 0)
+offset_left = 80.0
+offset_top = 260.0
+offset_right = 240.0
+offset_bottom = 420.0
+scale = Vector2(0.6, 0.6)
+pivot_offset = Vector2(80, 80)
+color = Color(0.37254903, 0.69803923, 1, 1)
+
+[node name="Card2" type="ColorRect" parent="." unique_id=1337232919]
+modulate = Color(1, 1, 1, 0)
+offset_left = 280.0
+offset_top = 260.0
+offset_right = 440.0
+offset_bottom = 420.0
+scale = Vector2(0.6, 0.6)
+pivot_offset = Vector2(80, 80)
+color = Color(0.77254903, 0.54509807, 1, 1)
+
+[node name="Card3" type="ColorRect" parent="." unique_id=325863245]
+modulate = Color(1, 1, 1, 0)
+offset_left = 480.0
+offset_top = 260.0
+offset_right = 640.0
+offset_bottom = 420.0
+scale = Vector2(0.6, 0.6)
+pivot_offset = Vector2(80, 80)
+color = Color(0.33333334, 0.8392157, 0.627451, 1)
+
+[node name="MotionPlayer" type="Node" parent="." unique_id=556886233]
+script = ExtResource("1_ytiva")
+timeline = ExtResource("2_dar0o")
+autoplay = true

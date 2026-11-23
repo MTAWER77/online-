@@ -1,0 +1,569 @@
+[gd_resource type="Resource" script_class="MotionTimeline" format=3]
+
+[ext_resource type="Script" path="res://addons/godotion/core/motion_marker.gd" id="1_exa3o"]
+[ext_resource type="Script" path="res://addons/godotion/core/motion_timeline.gd" id="2_h35hq"]
+[ext_resource type="Script" path="res://addons/godotion/core/motion_track.gd" id="3_ijo81"]
+[ext_resource type="Script" path="res://addons/godotion/core/motion_key.gd" id="4_y05hv"]
+
+[sub_resource type="Resource" id="Resource_ly710"]
+script = ExtResource("1_exa3o")
+name = "Badge"
+time = 0.33
+color = Color(1, 0.37254903, 0.56078434, 1)
+
+[sub_resource type="Resource" id="Resource_luv8q"]
+script = ExtResource("1_exa3o")
+name = "Title"
+time = 1.2
+color = Color(0.37254903, 0.69803923, 1, 1)
+
+[sub_resource type="Resource" id="Resource_j3qem"]
+script = ExtResource("1_exa3o")
+name = "Panel"
+time = 2.6
+color = Color(0.77254903, 0.54509807, 1, 1)
+
+[sub_resource type="Resource" id="Resource_rbaab"]
+script = ExtResource("1_exa3o")
+name = "Stats"
+time = 4.2
+color = Color(0.33333334, 0.8392157, 0.627451, 1)
+
+[sub_resource type="Resource" id="Resource_perrq"]
+script = ExtResource("1_exa3o")
+name = "Outro"
+time = 7.87
+color = Color(1, 0.81960785, 0.4, 1)
+
+[sub_resource type="Resource" id="Resource_3corv"]
+script = ExtResource("4_y05hv")
+value = Vector2(1, 1)
+
+[sub_resource type="Resource" id="Resource_p671e"]
+script = ExtResource("4_y05hv")
+time = 9.0
+value = Vector2(1.15, 1.15)
+
+[sub_resource type="Resource" id="Resource_fhig6"]
+script = ExtResource("3_ijo81")
+node_path = NodePath("Backdrop/Photo")
+property = "scale"
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_3corv"), SubResource("Resource_p671e")])
+
+[sub_resource type="Resource" id="Resource_t725h"]
+script = ExtResource("4_y05hv")
+
+[sub_resource type="Resource" id="Resource_6fwqy"]
+script = ExtResource("4_y05hv")
+time = 9.0
+value = -28.0
+
+[sub_resource type="Resource" id="Resource_vj8ma"]
+script = ExtResource("3_ijo81")
+node_path = NodePath("Backdrop/Photo")
+property = "position:x"
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_t725h"), SubResource("Resource_6fwqy")])
+
+[sub_resource type="Resource" id="Resource_fgvt6"]
+script = ExtResource("4_y05hv")
+time = 0.33
+interp = 5
+out_handle = Vector2(0.19, 1)
+
+[sub_resource type="Resource" id="Resource_5nspp"]
+script = ExtResource("4_y05hv")
+time = 1.73
+value = 1.0
+in_handle = Vector2(-0.78, 0)
+
+[sub_resource type="Resource" id="Resource_2weni"]
+script = ExtResource("3_ijo81")
+node_path = NodePath("LeftColumn/Badge")
+property = "modulate:a"
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_fgvt6"), SubResource("Resource_5nspp")])
+
+[sub_resource type="Resource" id="Resource_gyy0d"]
+script = ExtResource("4_y05hv")
+time = 0.33
+value = -36.0
+interp = 5
+out_handle = Vector2(0.19, 1)
+
+[sub_resource type="Resource" id="Resource_ps88l"]
+script = ExtResource("4_y05hv")
+time = 1.73
+in_handle = Vector2(-0.78, 0)
+
+[sub_resource type="Resource" id="Resource_thnva"]
+script = ExtResource("3_ijo81")
+node_path = NodePath("LeftColumn/Badge")
+property = "position:x"
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_gyy0d"), SubResource("Resource_ps88l")])
+
+[sub_resource type="Resource" id="Resource_qh5je"]
+script = ExtResource("4_y05hv")
+time = 1.2
+interp = 5
+out_handle = Vector2(0.19, 1)
+
+[sub_resource type="Resource" id="Resource_0f5ur"]
+script = ExtResource("4_y05hv")
+time = 3.2
+value = 1.0
+in_handle = Vector2(-0.78, 0)
+
+[sub_resource type="Resource" id="Resource_2elwb"]
+script = ExtResource("3_ijo81")
+node_path = NodePath("LeftColumn/HeroTitle")
+property = "modulate:a"
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_qh5je"), SubResource("Resource_0f5ur")])
+
+[sub_resource type="Resource" id="Resource_6lif4"]
+script = ExtResource("4_y05hv")
+time = 1.2
+value = 138.0
+interp = 5
+out_handle = Vector2(0.19, 1)
+
+[sub_resource type="Resource" id="Resource_tib5h"]
+script = ExtResource("4_y05hv")
+time = 3.2
+value = 86.0
+in_handle = Vector2(-0.78, 0)
+
+[sub_resource type="Resource" id="Resource_qbr7w"]
+script = ExtResource("3_ijo81")
+node_path = NodePath("LeftColumn/HeroTitle")
+property = "position:y"
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_6lif4"), SubResource("Resource_tib5h")])
+
+[sub_resource type="Resource" id="Resource_bpg27"]
+script = ExtResource("4_y05hv")
+time = 1.2
+interp = 5
+out_handle = Vector2(0.19, 1)
+
+[sub_resource type="Resource" id="Resource_w61hv"]
+script = ExtResource("4_y05hv")
+time = 3.2
+value = 152.0
+in_handle = Vector2(-0.78, 0)
+
+[sub_resource type="Resource" id="Resource_8x7lt"]
+script = ExtResource("3_ijo81")
+node_path = NodePath("LeftColumn/HeroTitle")
+property = "line_width"
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_bpg27"), SubResource("Resource_w61hv")])
+
+[sub_resource type="Resource" id="Resource_er2w2"]
+script = ExtResource("4_y05hv")
+time = 2.6
+interp = 5
+out_handle = Vector2(0.19, 1)
+
+[sub_resource type="Resource" id="Resource_6riu2"]
+script = ExtResource("4_y05hv")
+time = 5.0
+value = 1.0
+in_handle = Vector2(-0.78, 0)
+
+[sub_resource type="Resource" id="Resource_skwow"]
+script = ExtResource("3_ijo81")
+node_path = NodePath("StatPanel")
+property = "modulate:a"
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_er2w2"), SubResource("Resource_6riu2")])
+
+[sub_resource type="Resource" id="Resource_mnmwj"]
+script = ExtResource("4_y05hv")
+time = 2.6
+value = 1899.0
+interp = 5
+out_handle = Vector2(0.19, 1)
+
+[sub_resource type="Resource" id="Resource_6cae8"]
+script = ExtResource("4_y05hv")
+time = 5.0
+value = 1139.0
+in_handle = Vector2(-0.78, 0)
+
+[sub_resource type="Resource" id="Resource_3yynl"]
+script = ExtResource("3_ijo81")
+node_path = NodePath("StatPanel")
+property = "position:x"
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_mnmwj"), SubResource("Resource_6cae8")])
+
+[sub_resource type="Resource" id="Resource_1qk7u"]
+script = ExtResource("4_y05hv")
+time = 2.6
+interp = 5
+out_handle = Vector2(0.19, 1)
+
+[sub_resource type="Resource" id="Resource_snf6j"]
+script = ExtResource("4_y05hv")
+time = 5.0
+value = 0.85
+in_handle = Vector2(-0.78, 0)
+
+[sub_resource type="Resource" id="Resource_3rg84"]
+script = ExtResource("3_ijo81")
+node_path = NodePath("StatPanel/RadarReticle")
+property = "modulate:a"
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_1qk7u"), SubResource("Resource_snf6j")])
+
+[sub_resource type="Resource" id="Resource_d2tfd"]
+script = ExtResource("4_y05hv")
+value = -38.0
+
+[sub_resource type="Resource" id="Resource_2hn4p"]
+script = ExtResource("4_y05hv")
+time = 9.0
+value = 74.0
+
+[sub_resource type="Resource" id="Resource_p5hrc"]
+script = ExtResource("3_ijo81")
+node_path = NodePath("StatPanel/RadarReticle")
+property = "rotation_angle"
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_d2tfd"), SubResource("Resource_2hn4p")])
+
+[sub_resource type="Resource" id="Resource_27d2l"]
+script = ExtResource("4_y05hv")
+time = 4.2
+interp = 5
+out_handle = Vector2(0.19, 1)
+
+[sub_resource type="Resource" id="Resource_rhuuw"]
+script = ExtResource("4_y05hv")
+time = 5.9333
+value = 1.0
+in_handle = Vector2(-0.78, 0)
+
+[sub_resource type="Resource" id="Resource_hf51k"]
+script = ExtResource("3_ijo81")
+node_path = NodePath("StatPanel/Content/Stats/StatRow1")
+property = "modulate:a"
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_27d2l"), SubResource("Resource_rhuuw")])
+
+[sub_resource type="Resource" id="Resource_6rwfv"]
+script = ExtResource("4_y05hv")
+time = 4.2
+value = 30.0
+interp = 5
+out_handle = Vector2(0.19, 1)
+
+[sub_resource type="Resource" id="Resource_hpcfw"]
+script = ExtResource("4_y05hv")
+time = 5.9333
+in_handle = Vector2(-0.78, 0)
+
+[sub_resource type="Resource" id="Resource_acu7g"]
+script = ExtResource("3_ijo81")
+node_path = NodePath("StatPanel/Content/Stats/StatRow1")
+property = "position:y"
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_6rwfv"), SubResource("Resource_hpcfw")])
+
+[sub_resource type="Resource" id="Resource_gojfg"]
+script = ExtResource("4_y05hv")
+time = 4.2
+interp = 5
+out_handle = Vector2(0.19, 1)
+
+[sub_resource type="Resource" id="Resource_d00j6"]
+script = ExtResource("4_y05hv")
+time = 5.9333
+value = 0.97
+in_handle = Vector2(-0.78, 0)
+
+[sub_resource type="Resource" id="Resource_a3qs4"]
+script = ExtResource("3_ijo81")
+node_path = NodePath("StatPanel/Content/Stats/StatRow1")
+property = "progress_fill"
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_gojfg"), SubResource("Resource_d00j6")])
+
+[sub_resource type="Resource" id="Resource_15ga0"]
+script = ExtResource("4_y05hv")
+time = 4.2
+interp = 5
+out_handle = Vector2(0.19, 1)
+
+[sub_resource type="Resource" id="Resource_70ejr"]
+script = ExtResource("4_y05hv")
+time = 5.9333
+value = 1.0
+in_handle = Vector2(-0.78, 0)
+
+[sub_resource type="Resource" id="Resource_xrxfc"]
+script = ExtResource("3_ijo81")
+node_path = NodePath("StatPanel/Content/Stats/StatRow2")
+property = "modulate:a"
+time_offset = 1.0
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_15ga0"), SubResource("Resource_70ejr")])
+
+[sub_resource type="Resource" id="Resource_tw0tt"]
+script = ExtResource("4_y05hv")
+time = 4.2
+value = 130.0
+interp = 5
+out_handle = Vector2(0.19, 1)
+
+[sub_resource type="Resource" id="Resource_kkup8"]
+script = ExtResource("4_y05hv")
+time = 5.9333
+value = 100.0
+in_handle = Vector2(-0.78, 0)
+
+[sub_resource type="Resource" id="Resource_ttwg1"]
+script = ExtResource("3_ijo81")
+node_path = NodePath("StatPanel/Content/Stats/StatRow2")
+property = "position:y"
+time_offset = 1.0
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_tw0tt"), SubResource("Resource_kkup8")])
+
+[sub_resource type="Resource" id="Resource_eyqdt"]
+script = ExtResource("4_y05hv")
+time = 4.2
+interp = 5
+out_handle = Vector2(0.19, 1)
+
+[sub_resource type="Resource" id="Resource_qfk7k"]
+script = ExtResource("4_y05hv")
+time = 5.9333
+value = 0.86
+in_handle = Vector2(-0.78, 0)
+
+[sub_resource type="Resource" id="Resource_3ors5"]
+script = ExtResource("3_ijo81")
+node_path = NodePath("StatPanel/Content/Stats/StatRow2")
+property = "progress_fill"
+time_offset = 1.0
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_eyqdt"), SubResource("Resource_qfk7k")])
+
+[sub_resource type="Resource" id="Resource_7oknr"]
+script = ExtResource("4_y05hv")
+time = 4.2
+interp = 5
+out_handle = Vector2(0.19, 1)
+
+[sub_resource type="Resource" id="Resource_hkf2w"]
+script = ExtResource("4_y05hv")
+time = 5.9333
+value = 1.0
+in_handle = Vector2(-0.78, 0)
+
+[sub_resource type="Resource" id="Resource_qtf6w"]
+script = ExtResource("3_ijo81")
+node_path = NodePath("StatPanel/Content/Stats/StatRow3")
+property = "modulate:a"
+time_offset = 2.0
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_7oknr"), SubResource("Resource_hkf2w")])
+
+[sub_resource type="Resource" id="Resource_mywv3"]
+script = ExtResource("4_y05hv")
+time = 4.2
+value = 230.0
+interp = 5
+out_handle = Vector2(0.19, 1)
+
+[sub_resource type="Resource" id="Resource_vavr7"]
+script = ExtResource("4_y05hv")
+time = 5.9333
+value = 200.0
+in_handle = Vector2(-0.78, 0)
+
+[sub_resource type="Resource" id="Resource_e0or2"]
+script = ExtResource("3_ijo81")
+node_path = NodePath("StatPanel/Content/Stats/StatRow3")
+property = "position:y"
+time_offset = 2.0
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_mywv3"), SubResource("Resource_vavr7")])
+
+[sub_resource type="Resource" id="Resource_vdfdy"]
+script = ExtResource("4_y05hv")
+time = 4.2
+interp = 5
+out_handle = Vector2(0.19, 1)
+
+[sub_resource type="Resource" id="Resource_2htyv"]
+script = ExtResource("4_y05hv")
+time = 5.9333
+value = 0.94
+in_handle = Vector2(-0.78, 0)
+
+[sub_resource type="Resource" id="Resource_1ehe7"]
+script = ExtResource("3_ijo81")
+node_path = NodePath("StatPanel/Content/Stats/StatRow3")
+property = "progress_fill"
+time_offset = 2.0
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_vdfdy"), SubResource("Resource_2htyv")])
+
+[sub_resource type="Resource" id="Resource_tymue"]
+script = ExtResource("4_y05hv")
+time = 4.2
+interp = 5
+out_handle = Vector2(0.19, 1)
+
+[sub_resource type="Resource" id="Resource_3gdvj"]
+script = ExtResource("4_y05hv")
+time = 5.9333
+value = 1.0
+in_handle = Vector2(-0.78, 0)
+
+[sub_resource type="Resource" id="Resource_tj1s4"]
+script = ExtResource("3_ijo81")
+node_path = NodePath("StatPanel/Content/Stats/StatRow4")
+property = "modulate:a"
+time_offset = 3.0
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_tymue"), SubResource("Resource_3gdvj")])
+
+[sub_resource type="Resource" id="Resource_nmyj4"]
+script = ExtResource("4_y05hv")
+time = 4.2
+value = 330.0
+interp = 5
+out_handle = Vector2(0.19, 1)
+
+[sub_resource type="Resource" id="Resource_jom0h"]
+script = ExtResource("4_y05hv")
+time = 5.9333
+value = 300.0
+in_handle = Vector2(-0.78, 0)
+
+[sub_resource type="Resource" id="Resource_x607j"]
+script = ExtResource("3_ijo81")
+node_path = NodePath("StatPanel/Content/Stats/StatRow4")
+property = "position:y"
+time_offset = 3.0
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_nmyj4"), SubResource("Resource_jom0h")])
+
+[sub_resource type="Resource" id="Resource_823te"]
+script = ExtResource("4_y05hv")
+time = 4.2
+interp = 5
+out_handle = Vector2(0.19, 1)
+
+[sub_resource type="Resource" id="Resource_glc3g"]
+script = ExtResource("4_y05hv")
+time = 5.9333
+value = 0.72
+in_handle = Vector2(-0.78, 0)
+
+[sub_resource type="Resource" id="Resource_0q6la"]
+script = ExtResource("3_ijo81")
+node_path = NodePath("StatPanel/Content/Stats/StatRow4")
+property = "progress_fill"
+time_offset = 3.0
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_823te"), SubResource("Resource_glc3g")])
+
+[sub_resource type="Resource" id="Resource_uc0fc"]
+script = ExtResource("4_y05hv")
+interp = 0
+
+[sub_resource type="Resource" id="Resource_0qbqy"]
+script = ExtResource("3_ijo81")
+mode = 1
+node_path = NodePath("Audio/Ambient")
+property = "play"
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_uc0fc")])
+
+[sub_resource type="Resource" id="Resource_p0dwl"]
+script = ExtResource("4_y05hv")
+time = 0.33
+interp = 0
+
+[sub_resource type="Resource" id="Resource_2mofd"]
+script = ExtResource("3_ijo81")
+mode = 1
+node_path = NodePath("Audio/Badge")
+property = "play"
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_p0dwl")])
+
+[sub_resource type="Resource" id="Resource_7qk3a"]
+script = ExtResource("4_y05hv")
+time = 1.2
+interp = 0
+
+[sub_resource type="Resource" id="Resource_hfdnw"]
+script = ExtResource("3_ijo81")
+mode = 1
+node_path = NodePath("Audio/Title")
+property = "play"
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_7qk3a")])
+
+[sub_resource type="Resource" id="Resource_wgm63"]
+script = ExtResource("4_y05hv")
+time = 2.6
+interp = 0
+
+[sub_resource type="Resource" id="Resource_khqic"]
+script = ExtResource("3_ijo81")
+mode = 1
+node_path = NodePath("Audio/Panel")
+property = "play"
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_wgm63")])
+
+[sub_resource type="Resource" id="Resource_rs0kh"]
+script = ExtResource("4_y05hv")
+time = 7.87
+interp = 0
+
+[sub_resource type="Resource" id="Resource_m76ab"]
+script = ExtResource("3_ijo81")
+mode = 1
+node_path = NodePath("Audio/Outro")
+property = "play"
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_rs0kh")])
+
+[sub_resource type="Resource" id="Resource_0b1ax"]
+script = ExtResource("4_y05hv")
+time = 4.2
+interp = 0
+
+[sub_resource type="Resource" id="Resource_ppkfp"]
+script = ExtResource("3_ijo81")
+mode = 1
+node_path = NodePath("Audio/Stat1")
+property = "play"
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_0b1ax")])
+
+[sub_resource type="Resource" id="Resource_g4xng"]
+script = ExtResource("4_y05hv")
+time = 5.2
+interp = 0
+
+[sub_resource type="Resource" id="Resource_na5fe"]
+script = ExtResource("3_ijo81")
+mode = 1
+node_path = NodePath("Audio/Stat2")
+property = "play"
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_g4xng")])
+
+[sub_resource type="Resource" id="Resource_8xdqr"]
+script = ExtResource("4_y05hv")
+time = 6.2
+interp = 0
+
+[sub_resource type="Resource" id="Resource_rh248"]
+script = ExtResource("3_ijo81")
+mode = 1
+node_path = NodePath("Audio/Stat3")
+property = "play"
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_8xdqr")])
+
+[sub_resource type="Resource" id="Resource_go234"]
+script = ExtResource("4_y05hv")
+time = 7.2
+interp = 0
+
+[sub_resource type="Resource" id="Resource_u105n"]
+script = ExtResource("3_ijo81")
+mode = 1
+node_path = NodePath("Audio/Stat4")
+property = "play"
+keys = Array[ExtResource("4_y05hv")]([SubResource("Resource_go234")])
+
+[resource]
+script = ExtResource("2_h35hq")
+timeline_name = "Peregrine Hero Stat Card"
+duration = 9.0
+fps = 30
+tracks = Array[ExtResource("3_ijo81")]([SubResource("Resource_fhig6"), SubResource("Resource_vj8ma"), SubResource("Resource_2weni"), SubResource("Resource_thnva"), SubResource("Resource_2elwb"), SubResource("Resource_qbr7w"), SubResource("Resource_8x7lt"), SubResource("Resource_skwow"), SubResource("Resource_3yynl"), SubResource("Resource_3rg84"), SubResource("Resource_p5hrc"), SubResource("Resource_hf51k"), SubResource("Resource_acu7g"), SubResource("Resource_a3qs4"), SubResource("Resource_xrxfc"), SubResource("Resource_ttwg1"), SubResource("Resource_3ors5"), SubResource("Resource_qtf6w"), SubResource("Resource_e0or2"), SubResource("Resource_1ehe7"), SubResource("Resource_tj1s4"), SubResource("Resource_x607j"), SubResource("Resource_0q6la"), SubResource("Resource_0qbqy"), SubResource("Resource_2mofd"), SubResource("Resource_hfdnw"), SubResource("Resource_khqic"), SubResource("Resource_m76ab"), SubResource("Resource_ppkfp"), SubResource("Resource_na5fe"), SubResource("Resource_rh248"), SubResource("Resource_u105n")])
+markers = Array[ExtResource("1_exa3o")]([SubResource("Resource_ly710"), SubResource("Resource_luv8q"), SubResource("Resource_j3qem"), SubResource("Resource_rbaab"), SubResource("Resource_perrq")])

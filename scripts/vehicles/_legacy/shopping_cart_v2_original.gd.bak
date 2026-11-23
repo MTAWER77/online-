@@ -1,0 +1,864 @@
+extends CharacterBody3D
+## scripts/vehicles/shopping_cart.gd  —  v2 (Host-Authoritative) — سكربت واحد (اتدمج فيه shopping_cart_custom.gd)
+##
+## التصميم:
+##  - الـ HOST (دركسيون + قفز) هو الوحيد اللي بيحسب فيزياء العربية.
+##  - الـ CLIENT (بنزين + فرامل) بيبعت مدخلاته بس، وبيعرض العربية من snapshots بـ interpolation.
+##  - مفيش rollback ولا prediction => مفيش desync بالتصميم.
+##  - كل نداءات GDSync متجمعة في قسم "NETWORK LAYER" في آخر الملف (نقل Steam بيبقى في مكان واحد).
+##  - الوقت المشترك من NetClock (نفس اللي بتستخدمه البلاتفورمات المتحركة).
+
+const SessionMode = preload("res://scripts/multiplayer/session_mode.gd")
+const DebugLog = preload("res://scripts/systems/debug_log.gd")
+const NetClock = preload("res://scripts/multiplayer/net_clock.gd")
+
+const CART_FILES: Array = ["res://assets/models/shopping_cart.glb", "res://assets/models/model.glb"]
+const CARTON_FILES: Array = ["res://assets/models/egg_carton.glb"]
+const MELON_FILES: Array = ["res://assets/models/watermelon.glb", "res://assets/models/watermelon_lowpoly_free.glb"]
+
+enum ControlRole { ALL, STEER_JUMP, GAS_BRAKE }
+
+const SNAP_SIZE: int = 13       # عدد القيم في الـ snapshot
+const SNAP_BUF: int = 40        # أقصى snapshots محفوظة عند الـ client
+const SEQ_DUP_WINDOW: int = 16  # رقم تسلسلي أقدم من كده بنعتبره حزمة مكررة/متأخرة
+
+@export_group("Speed")
+@export var max_speed: float = 14.0
+@export var acceleration: float = 9.0
+@export var brake_decel: float = 22.0
+@export var coast_drag: float = 2.0
+@export var gravity: float = 15.0
+@export var gas_response: float = 8.0
+@export var brake_response: float = 12.0
+
+@export_group("Steering")
+@export var turn_rate: float = 3.0
+@export var steer_response: float = 10.0
+
+@export_group("Jump")
+@export var jump_velocity: float = 10.0
+@export var coyote_time: float = 0.12
+@export var jump_buffer_time: float = 0.15
+@export var fall_limit: float = -12.0
+
+@export_group("Crash")
+@export var crash_speed: float = 12.0
+@export var crash_duration: float = 1.5
+
+@export_group("Body & Visuals")
+@export var max_lean: float = 0.4
+@export var pitch_lean: float = 0.1
+@export var crash_lift: float = 0.32
+@export var crash_visual_speed: float = 10.0
+@export var camera_follow_speed: float = 30.0
+@export var camera_yaw_speed: float = 4.0
+
+@export_group("Visual Models")
+@export var cart_model_path: String = "res://assets/models/shopping_cart.glb"
+@export var watermelon_model_path: String = "res://assets/models/watermelon.glb"
+@export var cart_yaw_degrees: float = 180.0
+@export var basket_floor_y: float = 0.52
+
+@export_group("Chaos (Visual Only)")
+@export var pull_strength: float = 0.15
+@export var shimmy_strength: float = 0.2
+@export var skid_strength: float = 0.3
+@export var chaos_gain: float = 0.25
+
+@export_group("Hurt")
+@export var hurt_cooldown_time: float = 0.4
+
+@export_group("Network")
+@export var snapshot_hz: float = 30.0          ## الـ host -> client
+@export var input_hz: float = 30.0             ## الـ client -> host (heartbeat)
+@export var render_delay_base: float = 0.09    ## تأخير العرض عند الـ client (ثواني)
+@export var max_extrapolation: float = 0.12    ## أقصى توقّع لو الـ snapshots اتأخرت
+@export var input_timeout: float = 0.35        ## لو مفيش مدخلات من الـ client: بنزين/فرامل = 0
+@export var peer_lost_timeout: float = 3.0
+@export var log_net_stats: bool = true
+@export var log_interval_sec: float = 5.0
+
+@onready var _visual: Node3D = $Visual
+@onready var _camera_rig: Node3D = $CameraRig
+@onready var _camera: Camera3D = $CameraRig/Camera3D
+@onready var _hud_label: Label = $HUD/Label
+
+# ---- Simulation state ----
+var _online: bool = false
+var _is_host: bool = false
+var _is_client: bool = false
+var _role: int = ControlRole.ALL
+var _authoritative: bool = true
+var _yaw: float = 0.0
+var _speed: float = 0.0
+var _jump_buffer: float = 0.0
+var _coyote: float = 0.0
+var _grounded: bool = false
+var _crash_left: float = 0.0
+var _is_fallen: bool = false
+var _gas_smooth: float = 0.0
+var _brake_smooth: float = 0.0
+var _steer_smooth: float = 0.0
+var _spawn_transform: Transform3D
+
+# ---- Hurt / respawn ----
+var _hurt_cooldown: float = 0.0
+var _pending_respawn: bool = false
+var _last_hurt_reason: String = ""
+
+# ---- Visual ----
+var _vis_lean: float = 0.0
+var _vis_pitch: float = 0.0
+var _crash_vis: float = 0.0
+var _crash_side: float = 1.0
+var _model: Node3D
+var _wheel_spins: Array = []
+var _items: Array = []
+var _prev_vis_origin: Vector3
+var _prev_vis_vel: Vector3 = Vector3.ZERO
+var _acc_smooth: Vector3 = Vector3.ZERO
+
+# ---- Network state ----
+var _tick: int = 0
+var _snapshot_every: int = 4
+var _input_every: int = 4
+var _epoch: int = 0                 # بيزيد مع كل respawn (يلغي أي snapshots قديمة)
+var _peer_id: int = -1
+var _peer_check_ms: int = 0
+var _peer_had: bool = false
+var _peer_lost_ms: int = 0
+var _rx_window_ms: int = 0
+var _rx_count: int = 0
+
+# host side
+var _remote_gas: float = 0.0
+var _remote_brake: float = 0.0
+var _remote_ms: int = 0
+var _remote_seq: int = -1
+var _snap_out_seq: int = 0
+
+# client side
+var _in_seq: int = 0
+var _last_sent_gas: float = -1.0
+var _last_sent_brake: float = -1.0
+var _last_input_tick: int = -100
+var _snaps: Array = []              # [{t: float, s: PackedFloat32Array}] مرتبة بالوقت
+var _snap_seq: int = -1
+var _client_placed: bool = false
+
+# stats
+var _stats_timer: float = 0.0
+var _st_snap_rx: int = 0
+var _st_snap_tx: int = 0
+var _st_input_rx: int = 0
+var _st_frames: int = 0
+var _st_extrap: int = 0
+
+
+func _ready() -> void:
+	add_to_group("unicycle")
+	add_to_group("cart")
+	NetClock.reset()
+	cart_model_path = _first_existing(CART_FILES, cart_model_path)
+	watermelon_model_path = _first_existing(MELON_FILES, watermelon_model_path)
+	_online = not SessionMode.offline and GDSync.is_active()
+	_is_host = _online and GDSync.is_host()
+	_is_client = _online and not _is_host
+	_authoritative = not _is_client
+	if not _online:
+		_role = ControlRole.ALL
+	elif _is_host:
+		_role = ControlRole.STEER_JUMP
+	else:
+		_role = ControlRole.GAS_BRAKE
+
+	floor_snap_length = 0.3
+	_ensure_input_actions()
+	_build_visual()
+	_spawn_transform = global_transform
+	_yaw = rotation.y
+	_prev_vis_origin = global_position
+
+	_camera_rig.top_level = true
+	_camera_rig.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+	_camera_rig.global_position = global_position + Vector3.UP
+	_camera_rig.rotation = Vector3(0.0, _yaw, 0.0)
+	_camera.make_current()
+
+	# الـ client بيحرّك العربية بنفسه كل frame من الـ snapshots => نقفل الـ physics interpolation عليها
+	if _is_client:
+		physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
+
+	var hz: float = float(Engine.physics_ticks_per_second)
+	_snapshot_every = maxi(1, roundi(hz / maxf(snapshot_hz, 1.0)))
+	_input_every = maxi(1, roundi(hz / maxf(input_hz, 1.0)))
+
+	if _online:
+		_net_setup()
+	_log_startup()
+
+
+func _log_startup() -> void:
+	var role_str: String = "ALL (offline)"
+	if _role == ControlRole.STEER_JUMP: role_str = "HOST (steer+jump, authoritative)"
+	elif _role == ControlRole.GAS_BRAKE: role_str = "CLIENT (gas+brake, input only)"
+	print("INIT: Cart v2 online=%s role=%s snap=%dticks input=%dticks" % [_online, role_str, _snapshot_every, _input_every])
+
+
+func _ensure_input_actions() -> void:
+	var keys: Dictionary = {
+		&"move_forward": KEY_W, &"move_back": KEY_S,
+		&"move_left": KEY_A, &"move_right": KEY_D, &"jump": KEY_SPACE,
+	}
+	for action: StringName in keys:
+		if not InputMap.has_action(action):
+			InputMap.add_action(action)
+			var ev := InputEventKey.new()
+			ev.physical_keycode = keys[action] as Key
+			InputMap.action_add_event(action, ev)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed(&"ui_cancel"):
+		_leave_to_menu()
+		return
+	# القفز بيتحسب عند الـ host (أو offline) بس
+	if not _is_client and event.is_action_pressed(&"jump"):
+		_jump_buffer = jump_buffer_time
+
+
+func _leave_to_menu() -> void:
+	if _online:
+		GDSync.lobby_leave()
+	get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn")
+
+
+# =====================================================================
+# PUBLIC API (نفس الأسماء القديمة عشان سكربتات المراحل متتكسرش)
+# =====================================================================
+func set_checkpoint(target: Transform3D) -> void:
+	_spawn_transform = target
+
+
+func is_authoritative() -> bool:
+	return _authoritative
+
+
+## الـ host (أو offline) بس هو اللي بيقرر الـ hurt. الـ client بيتجاهلها.
+func _hurt(reason: String = "generic", _damage: float = 1.0) -> void:
+	if _is_client: return
+	if _hurt_cooldown > 0.0: return
+	_hurt_cooldown = hurt_cooldown_time
+	_last_hurt_reason = reason
+	_pending_respawn = true
+
+
+func _respawn(_reason: String = "respawn") -> void:
+	_reset_to(_spawn_transform)
+	if _is_host:
+		_epoch += 1
+		_send_respawn(_epoch, _spawn_transform.origin, _spawn_transform.basis.get_euler().y)
+		_send_snapshot()
+
+
+func _reset_to(target: Transform3D) -> void:
+	_apply_reset_state(target)
+	_snap_camera()
+
+
+func _apply_reset_state(target: Transform3D) -> void:
+	global_position = target.origin
+	_yaw = target.basis.get_euler().y
+	rotation = Vector3(0.0, _yaw, 0.0)
+	velocity = Vector3.ZERO
+	_speed = 0.0
+	_crash_left = 0.0
+	_is_fallen = false
+	_jump_buffer = 0.0
+	_coyote = 0.0
+	_gas_smooth = 0.0
+	_brake_smooth = 0.0
+	_steer_smooth = 0.0
+
+
+func _snap_camera() -> void:
+	_camera_rig.global_position = global_position + Vector3.UP
+	_camera_rig.rotation = Vector3(0.0, _yaw, 0.0)
+	_prev_vis_origin = global_position
+	_prev_vis_vel = Vector3.ZERO
+	reset_physics_interpolation()
+
+
+# =====================================================================
+# PHYSICS
+# =====================================================================
+func _physics_process(delta: float) -> void:
+	if _is_client:
+		_client_tick()
+	else:
+		_host_tick(delta)
+
+
+func _host_tick(delta: float) -> void:
+	_tick += 1
+	var steer: float
+	var gas: float
+	var brake: float
+	if _online:
+		_check_peer()
+		steer = Input.get_axis(&"move_right", &"move_left")
+		gas = _remote_gas
+		brake = _remote_brake
+		if Time.get_ticks_msec() - _remote_ms > int(input_timeout * 1000.0):
+			gas = 0.0
+			brake = 0.0
+	else:
+		steer = Input.get_axis(&"move_right", &"move_left")
+		gas = Input.get_action_strength(&"move_forward")
+		brake = Input.get_action_strength(&"move_back")
+
+	if _pending_respawn:
+		_pending_respawn = false
+		_respawn(_last_hurt_reason)
+	elif _control_step(delta, steer, brake, gas):
+		_respawn("fall")
+
+	if _is_host and _tick % _snapshot_every == 0:
+		_send_snapshot()
+
+
+func _client_tick() -> void:
+	_tick += 1
+	_check_peer()
+	var gas: float = Input.get_action_strength(&"move_forward")
+	var brake: float = Input.get_action_strength(&"move_back")
+	var changed: bool = absf(gas - _last_sent_gas) > 0.02 or absf(brake - _last_sent_brake) > 0.02
+	var since: int = _tick - _last_input_tick
+	# heartbeat ثابت + إرسال فوري (بحد أدنى tickين) لما المدخلات تتغيّر
+	if since >= _input_every or (changed and since >= 2):
+		_last_input_tick = _tick
+		_last_sent_gas = gas
+		_last_sent_brake = brake
+		_in_seq += 1
+		_send_input(_in_seq, gas, brake)
+
+
+## خطوة الفيزياء الكاملة (host / offline بس)
+func _control_step(delta: float, steer: float, brake: float, gas: float) -> bool:
+	_hurt_cooldown = maxf(_hurt_cooldown - delta, 0.0)
+
+	if _crash_left > 0.0:
+		_crash_left = maxf(_crash_left - delta, 0.0)
+		steer = 0.0
+		brake = 0.0
+		gas = 0.0
+		_jump_buffer = 0.0
+	_is_fallen = _crash_left > 0.0
+
+	_gas_smooth = move_toward(_gas_smooth, gas, gas_response * delta)
+	_brake_smooth = move_toward(_brake_smooth, brake, brake_response * delta)
+	_steer_smooth = move_toward(_steer_smooth, steer, steer_response * delta)
+	_jump_buffer = maxf(_jump_buffer - delta, 0.0)
+
+	if _grounded: _coyote = coyote_time
+	else: _coyote = maxf(_coyote - delta, 0.0)
+	velocity.y -= gravity * delta
+
+	var speed_frac: float = clampf(absf(_speed) / max_speed, 0.0, 1.0)
+	if _is_fallen: _speed = 0.0
+	elif _brake_smooth > 0.05: _speed = move_toward(_speed, 0.0, brake_decel * _brake_smooth * delta)
+	elif _gas_smooth > 0.02: _speed = move_toward(_speed, max_speed * _gas_smooth, acceleration * delta)
+	else: _speed = move_toward(_speed, 0.0, coast_drag * delta)
+
+	var turn_factor: float = lerpf(0.5, 1.0, speed_frac)
+	_yaw += _steer_smooth * turn_rate * turn_factor * delta
+	rotation = Vector3(0.0, _yaw, 0.0)
+
+	var forward: Vector3 = Vector3(-sin(_yaw), 0.0, -cos(_yaw))
+	velocity.x = forward.x * _speed
+	velocity.z = forward.z * _speed
+
+	if _jump_buffer > 0.0 and _coyote > 0.0 and not _is_fallen:
+		velocity.y = jump_velocity
+		_jump_buffer = 0.0
+		_coyote = 0.0
+
+	var pre_move: Vector3 = Vector3(velocity.x, 0.0, velocity.z)
+	move_and_slide()
+	_grounded = is_on_floor()
+
+	if is_on_wall():
+		var impact: float = 0.0
+		for i in get_slide_collision_count():
+			var n: Vector3 = get_slide_collision(i).get_normal()
+			if absf(n.y) < 0.5: impact = maxf(impact, -pre_move.dot(n))
+		if not _is_fallen and impact >= crash_speed:
+			_crash_left = crash_duration
+			_is_fallen = true
+			_speed = 0.0
+			velocity.x = 0.0
+			velocity.z = 0.0
+		else:
+			_speed = clampf(velocity.dot(forward), 0.0, _speed)
+
+	return global_position.y < fall_limit
+
+
+# =====================================================================
+# CLIENT: عرض الـ snapshots بـ interpolation
+# =====================================================================
+func _client_apply_snapshots() -> void:
+	_st_frames += 1
+	NetClock.render_delay = NetClock.suggested_delay(render_delay_base)
+	if _snaps.is_empty() or not NetClock.synced:
+		return
+
+	var rt: float = NetClock.world_time()
+	var n: int = _snaps.size()
+	var first_t: float = _snaps[0]["t"]
+	var last_t: float = _snaps[n - 1]["t"]
+	var a: PackedFloat32Array
+	var b: PackedFloat32Array
+	var k: float = 0.0
+	var extra: float = 0.0
+
+	if rt <= first_t:
+		a = _snaps[0]["s"]
+		b = a
+	elif rt >= last_t:
+		a = _snaps[n - 1]["s"]
+		b = a
+		extra = minf(rt - last_t, max_extrapolation)
+		_st_extrap += 1
+	else:
+		var i: int = 0
+		while i < n - 2 and float(_snaps[i + 1]["t"]) < rt:
+			i += 1
+		var t0: float = _snaps[i]["t"]
+		var t1: float = _snaps[i + 1]["t"]
+		a = _snaps[i]["s"]
+		b = _snaps[i + 1]["s"]
+		k = clampf((rt - t0) / maxf(t1 - t0, 0.0001), 0.0, 1.0)
+
+	var pos: Vector3 = Vector3(lerpf(a[0], b[0], k), lerpf(a[1], b[1], k), lerpf(a[2], b[2], k))
+	var vel: Vector3 = Vector3(lerpf(a[4], b[4], k), lerpf(a[5], b[5], k), lerpf(a[6], b[6], k))
+	if extra > 0.0:
+		pos += Vector3(vel.x, 0.0, vel.z) * extra
+
+	_yaw = lerp_angle(a[3], b[3], k)
+	_speed = lerpf(a[7], b[7], k)
+	_steer_smooth = lerpf(a[8], b[8], k)
+	_gas_smooth = lerpf(a[9], b[9], k)
+	_brake_smooth = lerpf(a[10], b[10], k)
+	_crash_left = lerpf(a[11], b[11], k)
+	_grounded = (a[12] if k < 0.5 else b[12]) > 0.5
+	_is_fallen = _crash_left > 0.0
+	velocity = vel
+	global_transform = Transform3D(Basis(Vector3.UP, _yaw), pos)
+
+	if not _client_placed:
+		_client_placed = true
+		_snap_camera()
+
+
+# =====================================================================
+# VISUALS
+# =====================================================================
+func _process(delta: float) -> void:
+	if delta <= 0.0: return
+	var visual_xf: Transform3D
+	if _is_client:
+		_client_apply_snapshots()
+		visual_xf = global_transform
+	else:
+		visual_xf = get_global_transform_interpolated()
+
+	_update_visual_pose(delta)
+	_apply_chaos()
+	_update_camera(delta, visual_xf)
+	_update_wheels(delta)
+	_update_items(visual_xf, delta)
+	_update_hud()
+	_log_stats(delta)
+
+
+func _update_visual_pose(delta: float) -> void:
+	var speed_frac: float = clampf(absf(_speed) / max_speed, 0.0, 1.0)
+	var lean_k: float = 1.0 - exp(-12.0 * delta)
+	_vis_lean = lerpf(_vis_lean, _steer_smooth * max_lean * speed_frac, lean_k)
+	_vis_pitch = lerpf(_vis_pitch, (_gas_smooth - _brake_smooth) * pitch_lean, lean_k)
+	if _crash_left <= 0.0: _crash_side = 1.0 if _vis_lean >= 0.0 else -1.0
+	var crash_target: float = 1.0 if _crash_left > 0.0 else 0.0
+	_crash_vis = lerpf(_crash_vis, crash_target, 1.0 - exp(-crash_visual_speed * delta))
+
+	var roll: float = lerpf(_vis_lean, _crash_side * PI * 0.5, _crash_vis)
+	var pitch: float = lerpf(_vis_pitch, 0.0, _crash_vis)
+	_visual.basis = Basis.from_euler(Vector3(pitch, 0.0, roll))
+	_visual.position = Vector3(0.0, crash_lift * _crash_vis, 0.0)
+
+
+func _update_camera(delta: float, visual_xf: Transform3D) -> void:
+	var flat_forward: Vector3 = -visual_xf.basis.z
+	flat_forward.y = 0.0
+	if flat_forward.length() > 0.4:
+		var target_yaw: float = atan2(-flat_forward.x, -flat_forward.z)
+		_camera_rig.rotation.y = lerp_angle(_camera_rig.rotation.y, target_yaw, 1.0 - exp(-camera_yaw_speed * delta))
+	var target_pos: Vector3 = visual_xf.origin + Vector3.UP
+	_camera_rig.global_position = _camera_rig.global_position.lerp(target_pos, 1.0 - exp(-camera_follow_speed * delta))
+
+
+func _update_wheels(delta: float) -> void:
+	for s in _wheel_spins:
+		(s as Node3D).rotation.x -= (_speed * delta) / 0.11
+
+
+func _update_items(visual_xf: Transform3D, delta: float) -> void:
+	var vis_pos: Vector3 = visual_xf.origin
+	var vel: Vector3 = (vis_pos - _prev_vis_origin) / delta
+	var acc: Vector3 = ((vel - _prev_vis_vel) / delta).limit_length(60.0)
+	_prev_vis_origin = vis_pos
+	_prev_vis_vel = vel
+	var acc_local: Vector3 = visual_xf.basis.transposed() * acc
+	_acc_smooth = _acc_smooth.lerp(acc_local, 1.0 - exp(-25.0 * delta))
+	for it in _items:
+		var d: Dictionary = it
+		var lim: float = d["lim"]
+		var target: Vector3 = (-_acc_smooth * float(d["k"])).clamp(Vector3(-lim, -lim * 1.6, -lim), Vector3(lim, lim * 1.6, lim))
+		var off: Vector3 = d["off"]
+		var v: Vector3 = d["vel"]
+		v += ((target - off) * float(d["stiff"]) - v * float(d["damp"])) * delta
+		off += v * delta
+		d["off"] = off
+		d["vel"] = v
+		(d["node"] as Node3D).position = (d["rest"] as Vector3) + off
+
+
+func _update_hud() -> void:
+	var role_text: String
+	match _role:
+		ControlRole.STEER_JUMP: role_text = "HOST: STEER (A/D) + JUMP"
+		ControlRole.GAS_BRAKE: role_text = "CLIENT: GAS (W) + BRAKE (S)"
+		_: role_text = "OFFLINE"
+	var txt: String = "%s\nSPEED: %d km/h" % [role_text, int(absf(_speed) * 3.6)]
+	if _is_client and _snaps.is_empty():
+		txt += "\nNET: connecting..."
+	elif _online:
+		txt += "\nNET: %d ms" % int(SessionMode.last_ping_ms)
+	if _crash_left > 0.0: txt += "\nCRASHED!"
+	_hud_label.text = txt
+
+
+func _build_visual() -> void:
+	_model = Node3D.new()
+	_model.name = "Model"
+	_visual.add_child(_model)
+
+	var cart_scene: PackedScene = _try_load(cart_model_path)
+	if cart_scene != null:
+		var holder: Node3D = Node3D.new()
+		_model.add_child(holder)
+		var fitted: Node3D = cart_scene.instantiate() as Node3D
+		holder.add_child(fitted)
+		var size: Vector3 = _fit_into(fitted, 1.05, true, true)
+		var auto_yaw: float = 90.0 if size.x > size.z * 1.15 else 0.0
+		holder.rotation_degrees.y = cart_yaw_degrees + auto_yaw
+	else:
+		_build_fallback_box()
+	_build_items()
+
+
+## لو موديل العربية مش موجود: مكعب + عجلة
+func _build_fallback_box() -> void:
+	var mesh := MeshInstance3D.new()
+	var box := BoxMesh.new()
+	box.size = Vector3(1.0, 0.5, 1.5)
+	mesh.mesh = box
+	_model.add_child(mesh)
+	var wheel := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 0.11
+	cyl.bottom_radius = 0.11
+	cyl.height = 0.05
+	wheel.mesh = cyl
+	wheel.rotation_degrees.z = 90
+	wheel.position = Vector3(-0.25, 0.11, -0.38)
+	_model.add_child(wheel)
+	_wheel_spins.append(wheel)
+
+
+func _build_items() -> void:
+	var root: Node3D = Node3D.new()
+	root.name = "Items"
+	_model.add_child(root)
+
+	var carton: PackedScene = _try_load(_first_existing(CARTON_FILES, ""))
+	if carton == null:
+		# بيضة بسيطة لو مفيش موديلات
+		var egg_mesh: SphereMesh = SphereMesh.new()
+		egg_mesh.radius = 0.05
+		egg_mesh.height = 0.1
+		var egg_mat: StandardMaterial3D = StandardMaterial3D.new()
+		egg_mat.albedo_color = Color(0.9, 0.9, 0.8)
+		var egg: MeshInstance3D = MeshInstance3D.new()
+		egg.mesh = egg_mesh
+		egg.material_override = egg_mat
+		egg.position = Vector3(0, 0.3, 0)
+		root.add_child(egg)
+		_items.append({"node": egg, "rest": Vector3(0, 0.3, 0), "off": Vector3.ZERO, "vel": Vector3.ZERO, "stiff": 200.0, "damp": 10.0, "k": 0.0035, "lim": 0.03})
+		return
+
+	_make_item(root, Vector3(0.0, basket_floor_y + 0.11, 0.12), carton, 0.28, null, Vector3.ONE, null, 200.0, 10.0, 0.0035, 0.03)
+
+	var melon: PackedScene = _try_load(watermelon_model_path)
+	var melon_mesh: SphereMesh = null
+	var melon_mat: ShaderMaterial = null
+	if melon == null:
+		melon_mesh = SphereMesh.new()
+		melon_mesh.radius = 0.18
+		melon_mesh.height = 0.36
+		melon_mat = _melon_material()
+	for sx in [-0.135, 0.135]:
+		_make_item(root, Vector3(float(sx), basket_floor_y + 0.13, -0.28), melon, 0.34, melon_mesh, Vector3(0.75, 0.7, 1.0), melon_mat, 140.0, 12.0, 0.002, 0.02)
+
+
+func _melon_material() -> ShaderMaterial:
+	var sh: Shader = Shader.new()
+	sh.code = "shader_type spatial;\nvoid fragment() {\n\tfloat s = step(0.5, fract(UV.x * 10.0));\n\tALBEDO = mix(vec3(0.06, 0.32, 0.10), vec3(0.18, 0.60, 0.22), s);\n\tROUGHNESS = 0.45;\n}\n"
+	var m: ShaderMaterial = ShaderMaterial.new()
+	m.shader = sh
+	return m
+
+
+func _first_existing(paths: Array, fallback: String) -> String:
+	for p in paths:
+		if ResourceLoader.exists(p as String):
+			return p as String
+	return fallback
+
+
+## اهتزاز بصري بس (مبيأثرش على الفيزياء ولا الشبكة)
+func _apply_chaos() -> void:
+	if _crash_left > 0.0 or _crash_vis > 0.02:
+		return
+	var speed_frac: float = clampf(absf(_speed) / max_speed, 0.0, 1.0)
+	var gate: float = smoothstep(0.0, 0.15, speed_frac)
+	if gate <= 0.0:
+		return
+	var t: float = Time.get_ticks_msec() / 1000.0
+	var pull: float = (0.7 * sin(t * 0.45) + 0.5 * sin(t * 1.13)) * pull_strength
+	var shimmy: float = sin(t * 14.0) * speed_frac * shimmy_strength
+	var skid: float = sin(t * 6.0) * _brake_smooth * skid_strength
+	var chaos_z: float = (pull * speed_frac + shimmy + skid) * gate * chaos_gain
+	var chaos_x: float = cos(t * 12.0) * speed_frac * shimmy_strength * 0.5 * gate * chaos_gain
+	_visual.rotation.z += chaos_z
+	_visual.rotation.x += chaos_x
+
+
+# ---- Helpers الموديلات ----
+func _try_load(path: String) -> PackedScene:
+	if path.is_empty() or not ResourceLoader.exists(path): return null
+	return load(path) as PackedScene
+
+
+func _fit_into(node: Node3D, target: float, horizontal: bool, ground_align: bool) -> Vector3:
+	var a: AABB = _aabb_of(node)
+	if a.size.length() < 0.0001: return Vector3.ZERO
+	var dim: float = maxf(a.size.x, a.size.z) if horizontal else maxf(a.size.x, maxf(a.size.y, a.size.z))
+	var s: float = target / maxf(dim, 0.0001)
+	var c: Vector3 = a.get_center()
+	node.scale = Vector3.ONE * s
+	var y: float = -a.position.y * s if ground_align else -c.y * s
+	node.position = Vector3(-c.x * s, y, -c.z * s)
+	return a.size
+
+
+func _aabb_of(node: Node3D) -> AABB:
+	var inv: Transform3D = node.global_transform.affine_inverse()
+	var out: AABB = AABB()
+	var first: bool = true
+	for m in node.find_children("*", "MeshInstance3D", true, false):
+		var mi: MeshInstance3D = m as MeshInstance3D
+		var a: AABB = (inv * mi.global_transform) * mi.get_aabb()
+		if first:
+			out = a
+			first = false
+		else:
+			out = out.merge(a)
+	return out
+
+
+func _make_item(parent: Node3D, pos: Vector3, scene: PackedScene, size: float, mesh: Mesh, mesh_scale: Vector3, mat: Material, stiff: float, damp: float, k: float, lim: float) -> void:
+	var holder: Node3D = Node3D.new()
+	holder.position = pos
+	parent.add_child(holder)
+	if scene != null:
+		var n: Node3D = scene.instantiate() as Node3D
+		holder.add_child(n)
+		_fit_into(n, size, false, false)
+	else:
+		var mi: MeshInstance3D = MeshInstance3D.new()
+		mi.mesh = mesh
+		mi.material_override = mat
+		mi.scale = mesh_scale
+		holder.add_child(mi)
+	_items.append({"node": holder, "rest": pos, "off": Vector3.ZERO, "vel": Vector3.ZERO, "stiff": stiff, "damp": damp, "k": k, "lim": lim})
+
+
+# =====================================================================
+# NETWORK LAYER  —  كل نداءات GDSync هنا بس (استبدلها لما تنقل لـ Steam)
+# =====================================================================
+func _net_setup() -> void:
+	GDSync.expose_func(_rx_input, ENUMS.EXPOSE_PERMISSION.CLIENT)    # client -> host
+	GDSync.expose_func(_rx_snapshot, ENUMS.EXPOSE_PERMISSION.HOST)   # host -> client
+	GDSync.expose_func(_rx_respawn, ENUMS.EXPOSE_PERMISSION.HOST)    # host -> client (reliable)
+	_remote_ms = Time.get_ticks_msec()
+	_rx_window_ms = _remote_ms
+	DebugLog.say("NET", "Cart v2 net ready. host=%s" % _is_host)
+
+
+func _find_peer() -> int:
+	var now_ms: int = Time.get_ticks_msec()
+	if _peer_id >= 0 and now_ms - _peer_check_ms < 1000: return _peer_id
+	_peer_check_ms = now_ms
+	_peer_id = -1
+	var my_id: int = GDSync.get_client_id()
+	for id: int in GDSync.lobby_get_all_clients():
+		if id != my_id:
+			_peer_id = id
+			break
+	return _peer_id
+
+
+func _sender_ok() -> bool:
+	var sender: int = GDSync.get_sender_id()
+	if sender < 0: return true
+	if sender == GDSync.get_client_id(): return true
+	var peer: int = _find_peer()
+	return peer >= 0 and sender == peer
+
+
+func _check_peer() -> void:
+	var now: int = Time.get_ticks_msec()
+	if _find_peer() >= 0:
+		_peer_had = true
+		_peer_lost_ms = 0
+		return
+	if not _peer_had: return
+	if _peer_lost_ms == 0: _peer_lost_ms = now
+	elif now - _peer_lost_ms > int(peer_lost_timeout * 1000.0): _leave_to_menu()
+
+
+func _rx_rate_ok() -> bool:
+	var now: int = Time.get_ticks_msec()
+	if now - _rx_window_ms >= 1000:
+		_rx_window_ms = now
+		_rx_count = 0
+	_rx_count += 1
+	return _rx_count <= 150
+
+
+# ---- client -> host ----
+func _send_input(seq: int, gas: float, brake: float) -> void:
+	GDSync.call_func_on_unreliable(GDSync.get_host(), _rx_input, seq, gas, brake)
+
+
+func _rx_input(seq: int, gas: float, brake: float) -> void:
+	if not _is_host or not _sender_ok() or not _rx_rate_ok(): return
+	if not is_finite(gas) or not is_finite(brake): return
+	var d: int = _remote_seq - seq
+	if d >= 0 and d < SEQ_DUP_WINDOW: return   # مكررة أو وصلت متأخرة
+	_remote_seq = seq
+	_remote_gas = clampf(gas, 0.0, 1.0)
+	_remote_brake = clampf(brake, 0.0, 1.0)
+	_remote_ms = Time.get_ticks_msec()
+	_st_input_rx += 1
+
+
+# ---- host -> client ----
+func _send_snapshot() -> void:
+	var peer: int = _find_peer()
+	if peer < 0: return
+	_snap_out_seq += 1
+	var st: PackedFloat32Array = PackedFloat32Array([
+		global_position.x, global_position.y, global_position.z, _yaw,
+		velocity.x, velocity.y, velocity.z, _speed,
+		_steer_smooth, _gas_smooth, _brake_smooth, _crash_left,
+		1.0 if _grounded else 0.0])
+	_st_snap_tx += 1
+	GDSync.call_func_on_unreliable(peer, _rx_snapshot, _epoch, _snap_out_seq, Time.get_ticks_msec(), st)
+
+
+func _rx_snapshot(epoch: int, seq: int, host_ms: int, st: PackedFloat32Array) -> void:
+	if not _is_client or not _sender_ok() or not _rx_rate_ok(): return
+	if st.size() != SNAP_SIZE: return
+	for v in st:
+		if not is_finite(v): return
+	if epoch < _epoch: return
+	if epoch > _epoch:
+		_epoch = epoch
+		_snaps.clear()
+		_snap_seq = -1
+		_client_placed = false
+	var d: int = _snap_seq - seq
+	if d >= 0 and d < SEQ_DUP_WINDOW: return
+	_snap_seq = seq
+
+	NetClock.feed(host_ms)
+	_st_snap_rx += 1
+	var t: float = float(host_ms) / 1000.0
+	var i: int = _snaps.size()
+	while i > 0 and float(_snaps[i - 1]["t"]) > t:
+		i -= 1
+	_snaps.insert(i, {"t": t, "s": st})
+	while _snaps.size() > SNAP_BUF:
+		_snaps.pop_front()
+
+
+func _send_respawn(epoch: int, origin: Vector3, yaw: float) -> void:
+	var peer: int = _find_peer()
+	if peer >= 0:
+		GDSync.call_func_on(peer, _rx_respawn, epoch, origin, yaw)
+
+
+func _rx_respawn(epoch: int, origin: Vector3, yaw: float) -> void:
+	if not _is_client or not _sender_ok(): return
+	if not origin.is_finite() or not is_finite(yaw): return
+	if epoch < _epoch: return
+	if epoch > _epoch:
+		_epoch = epoch
+		_snaps.clear()
+		_snap_seq = -1
+	_apply_reset_state(Transform3D(Basis(Vector3.UP, yaw), origin))
+	_snap_camera()
+	_client_placed = false
+
+
+# =====================================================================
+# STATS (كل log_interval_sec ثانية)
+# =====================================================================
+func _log_stats(delta: float) -> void:
+	if not _online or not log_net_stats: return
+	_stats_timer += delta
+	if _stats_timer < log_interval_sec: return
+	var t: float = _stats_timer
+	var ping: int = int(SessionMode.last_ping_ms)
+	if _is_client:
+		var rate: float = float(_st_snap_rx) / t
+		var extrap_pct: float = 100.0 * float(_st_extrap) / maxf(float(_st_frames), 1.0)
+		var status: String = "OK"
+		if rate < snapshot_hz * 0.7: status = "LOSS"
+		elif extrap_pct > 20.0: status = "STARVED"
+		print("NET [%s] CLIENT snaps: %.1f/s | buf: %d | delay: %dms | jitter: %dms | extrap: %.0f%% | ping: %dms" % [
+			status, rate, _snaps.size(), int(NetClock.render_delay * 1000.0), int(NetClock.jitter_ms), extrap_pct, ping])
+	else:
+		var age: int = Time.get_ticks_msec() - _remote_ms
+		var status_h: String = "OK"
+		if age > 500: status_h = "NO INPUT"
+		print("NET [%s] HOST snaps_out: %.1f/s | inputs_in: %.1f/s | input_age: %dms | ping: %dms" % [
+			status_h, float(_st_snap_tx) / t, float(_st_input_rx) / t, age, ping])
+	_stats_timer = 0.0
+	_st_snap_rx = 0
+	_st_snap_tx = 0
+	_st_input_rx = 0
+	_st_frames = 0
+	_st_extrap = 0

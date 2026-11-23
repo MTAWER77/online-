@@ -1,0 +1,31 @@
+[gd_resource type="Resource" script_class="PeregrineCardData" format=3]
+
+[ext_resource type="Texture2D" path="res://demo/peregrine/assets/images/peregrine-falcon.jpg" id="1_7g0bw"]
+[ext_resource type="Script" path="res://demo/peregrine/scripts/species_card_data.gd" id="2_hp70t"]
+[ext_resource type="Script" path="res://demo/peregrine/scripts/stat_item_data.gd" id="3_hgo7g"]
+
+[sub_resource type="Resource" id="Resource_pquvm"]
+script = ExtResource("3_hgo7g")
+
+[sub_resource type="Resource" id="Resource_01ruq"]
+script = ExtResource("3_hgo7g")
+label = "Visual acuity"
+value = "8× human"
+progress = 0.86
+
+[sub_resource type="Resource" id="Resource_bksii"]
+script = ExtResource("3_hgo7g")
+label = "Aerial agility"
+value = "94 / 100"
+progress = 0.94
+
+[sub_resource type="Resource" id="Resource_bk376"]
+script = ExtResource("3_hgo7g")
+label = "Hunting efficiency"
+value = "47%"
+progress = 0.72
+
+[resource]
+script = ExtResource("2_hp70t")
+image = ExtResource("1_7g0bw")
+stats = Array[ExtResource("3_hgo7g")]([SubResource("Resource_pquvm"), SubResource("Resource_01ruq"), SubResource("Resource_bksii"), SubResource("Resource_bk376")])

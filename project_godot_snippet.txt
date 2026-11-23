@@ -1,0 +1,8 @@
+; أضف/عدّل هذه الأقسام في project.godot (أو من Project Settings):
+
+[application]
+run/main_scene="res://scenes/multiplayer/multiplayer_test_main.tscn"
+
+[autoload]
+NetworkEvents="*res://scripts/multiplayer/core/network_events.gd"
+NetworkManager="*res://scripts/multiplayer/core/network_manager.gd"
